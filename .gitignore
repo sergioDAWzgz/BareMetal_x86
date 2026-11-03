@@ -1,0 +1,6 @@
+# Local tooling indexes and caches
+.tokensave/
+
+# OS noise
+.DS_Store
+Thumbs.db
