@@ -54,16 +54,18 @@ Gate: a user program loaded from disk prints through a syscall.
 
 ## Phase 5 - video, the decision point
 
-This is where the project forks, because of the Gen7 hardware decode constraint:
+The Gen7 hardware decode block is only reachable through a Linux driver, so a
+from-scratch GPU driver is out of scope. **Decision taken: reuse the open source
+Intel driver instead of writing one.** That makes 5b the target.
 
-- **5a - own kernel only.** Software decode (H.264 baseline) into the framebuffer.
-  Realistic at 720p on the N2930, not at 1080p, and not on the N2807.
-- **5b - Linux payload.** Keep the loader and boot a Linux kernel plus initramfs;
-  `i915` and VA-API then provide full hardware decode. This is the only path to
-  real 1080p playback.
+- **5a - own kernel only** (fallback, not the goal). Software decode (H.264
+  baseline) into the framebuffer. Realistic at 720p on the N2930, not at 1080p,
+  and not on the N2807.
+- **5b - Linux payload** (target). Keep the loader and boot a Linux kernel plus
+  initramfs; the open source `i915` driver and VA-API then provide hardware
+  decode. This is the only path to real 1080p playback without writing a driver.
 
-Gate: either a video plays at the documented resolution, or 5b boots and `vainfo`
-reports the H.264 decode entrypoint.
+Gate: 5b boots and `vainfo` reports the H.264 decode entrypoint.
 
 ## Phase 6 - real board bring-up
 
