@@ -1,3 +1,6 @@
+# Build output
+build/
+
 # Local tooling indexes and caches
 .tokensave/
 
