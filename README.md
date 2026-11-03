@@ -4,20 +4,20 @@ A bare-metal x86 system built from scratch for the Jetway JNF3A (Intel Bay Trail
 Celeron N2807 / N2930) 3.5" single board computer: own bootloader, own kernel, and
 eventually video playback on real hardware.
 
-Current state: **phase 1** - stage 1 and stage 2 bootloaders, a 32-bit kernel and a
-serial/VGA console. See `docs/roadmap.md`.
+Current state: **phase 2** - 64-bit long mode, higher-half kernel, E820 memory map,
+frame allocator, PIC/PIT and exception diagnostics. See `docs/roadmap.md`.
 
 ## Requirements
 
 Build host (Linux, or WSL on Windows):
 
 - `nasm`
-- `gcc` with 32-bit support (`gcc-multilib` on Debian/Ubuntu)
+- `gcc` (any x86_64 host compiler; no multilib needed)
 - `binutils`, `coreutils`
-- `qemu-system-i386` for the phase gate
+- `qemu-system-x86_64` for the phase gate
 
 ```sh
-sudo apt-get install nasm gcc-multilib binutils qemu-system-x86
+sudo apt-get install nasm binutils qemu-system-x86
 ```
 
 ## Build, test, run
@@ -35,19 +35,22 @@ sudo apt-get install nasm gcc-multilib binutils qemu-system-x86
 1. **stage 1** (`boot/stage1.asm`, 512 bytes at LBA 0): sets up segments and stack,
    stores the boot drive at `0x0500`, reads stage 2 from LBA 1 through the BIOS
    extended disk read and jumps to it.
-2. **stage 2** (`boot/stage2.asm`, 4 KiB at LBA 1): initialises COM1 at 115200 8N1,
-   loads the kernel to `0x10000` in two 32 KiB reads, enables A20, installs a flat
-   GDT and enters 32-bit protected mode.
-3. **kernel** (`kernel/`, linked at `0x10000`): clears `.bss`, prints to COM1 and the
-   VGA text buffer, reports the CPUID brand string and the boot drive.
+2. **stage 2** (`boot/stage2.asm`, 8 KiB at LBA 1): initialises COM1 at 115200 8N1,
+   collects the BIOS E820 memory map at `0x0504`, verifies long mode support, loads
+   the kernel to physical `0x10000` in two 32 KiB reads, enables A20, enters 32-bit
+   protected mode, builds 4-level page tables mapping the first GiB both identity
+   and at `0xFFFFFFFF80000000`, then enables IA-32e and jumps to the kernel.
+3. **kernel** (`kernel/`, linked at `0xFFFFFFFF80010000`): clears `.bss`, installs
+   its own GDT with a TSS and a 48-vector IDT, remaps the PIC, starts the PIT, prints
+   the memory map, initialises the frame allocator and demonstrates fault handling.
 
 Disk layout of `build/baremetal.img`:
 
 | LBA | Content |
 | --- | --- |
 | 0 | stage 1, MBR |
-| 1-8 | stage 2 |
-| 9+ | kernel binary (up to 64 KiB) |
+| 1-16 | stage 2 |
+| 17+ | kernel binary (up to 64 KiB) |
 
 ## Writing to a USB stick
 

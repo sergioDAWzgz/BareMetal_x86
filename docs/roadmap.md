@@ -15,16 +15,23 @@ phase's observable outcome. Phases target the Jetway JNF3A (see
 
 Gate: `test.sh` prints `PASS`.
 
-## Phase 2 - long mode and memory
+## Phase 2 - long mode and memory (done)
 
-- [ ] CPUID feature detection, identity paging, enter IA-32e long mode
-- [ ] own GDT in C, IDT with exception handlers, exception messages on the console
-- [ ] PIC remap, PIT tick, interrupt-driven console
-- [ ] E820 memory map collection and a physical frame allocator
-- [ ] kernel mapped at a higher-half address
+- [x] CPUID long mode check in stage 2, identity paging with 2 MiB pages, IA-32e
+- [x] kernel linked at the higher half base `0xFFFFFFFF80010000`, first GiB mapped
+      both identity and at that base
+- [x] own GDT with a TSS in C, IDT with 48 vectors and exception diagnostics
+- [x] PIC remap, PIT at 100 Hz, interrupt-driven tick counter
+- [x] E820 memory map collection in stage 2, parsed by the kernel
+- [x] physical frame bitmap allocator over the mapped GiB
 
-Gate: deliberate `int 3` and divide-by-zero produce readable diagnostics, and the
-memory map matches QEMU's `info mtree`.
+Gate: `test.sh` prints `PASS`. A deliberate `int3` and a real divide error both
+report vector, error code and RIP, then resume.
+
+Note for phase 3: the identity mapping of the first GiB is still present. It exists
+so stage 2 can run before the higher half switch and will be dropped once the
+kernel no longer needs to touch physical addresses before the switch.
+
 
 ## Phase 3 - devices
 

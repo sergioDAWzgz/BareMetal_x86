@@ -7,7 +7,7 @@
 #define VGA_ROWS 25
 #define VGA_ATTR 0x0A
 
-static volatile unsigned short *const vga_text = (volatile unsigned short *)0xB8000;
+static volatile uint16_t *const vga_text = (volatile uint16_t *)0xFFFFFFFF800B8000ULL;
 
 static unsigned int vga_row;
 static unsigned int vga_col;
@@ -27,12 +27,12 @@ static void serial_putc(char c)
 {
     while ((inb(COM1_PORT + 5) & 0x20) == 0) {
     }
-    outb(COM1_PORT, (unsigned char)c);
+    outb(COM1_PORT, (uint8_t)c);
 }
 
-static unsigned short vga_cell(char c)
+static uint16_t vga_cell(char c)
 {
-    return (unsigned short)((unsigned short)VGA_ATTR << 8) | (unsigned char)c;
+    return (uint16_t)((uint16_t)VGA_ATTR << 8) | (uint8_t)c;
 }
 
 static void vga_clear(void)
@@ -97,5 +97,34 @@ void console_write(const char *text)
     while (*text != '\0') {
         console_putc(*text);
         text++;
+    }
+}
+
+void console_hex64(uint64_t value)
+{
+    static const char digits[] = "0123456789abcdef";
+    int shift;
+
+    console_write("0x");
+    for (shift = 60; shift >= 0; shift -= 4) {
+        console_putc(digits[(value >> (unsigned int)shift) & 0x0F]);
+    }
+}
+
+void console_dec(uint64_t value)
+{
+    char buffer[21];
+    unsigned int index = 0;
+
+    if (value == 0) {
+        console_putc('0');
+        return;
+    }
+    while (value > 0) {
+        buffer[index++] = (char)('0' + (value % 10));
+        value /= 10;
+    }
+    while (index > 0) {
+        console_putc(buffer[--index]);
     }
 }

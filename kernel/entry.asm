@@ -1,11 +1,11 @@
-BITS 32
+BITS 64
 section .text.entry
 
 ; ---------------------------------------------------------------------------
-; BareMetal_x86 - kernel entry
+; BareMetal_x86 - kernel entry (long mode)
 ;
-; Reached from stage 2 with flat 32-bit segments. Establishes a stack, zeroes
-; .bss and hands control to kmain().
+; Reached from stage 2 with the higher half mapped and 64-bit flat segments.
+; Sets the kernel stack, zeroes .bss and calls kmain().
 ; ---------------------------------------------------------------------------
 
 global _start
@@ -14,13 +14,13 @@ extern __bss_start
 extern __bss_end
 
 _start:
-    mov esp, 0x90000
-    mov ebp, esp
+    mov rsp, stack_top
+    xor rbp, rbp
 
-    mov edi, __bss_start
-    mov ecx, __bss_end
-    sub ecx, edi
-    xor eax, eax
+    mov rdi, __bss_start
+    mov rcx, __bss_end
+    sub rcx, rdi
+    xor al, al
     cld
     rep stosb
 
@@ -30,3 +30,9 @@ _start:
     cli
     hlt
     jmp .hang
+
+section .bss
+align 16
+stack_bottom:
+    resq 2048                   ; 16 KiB kernel stack
+stack_top:

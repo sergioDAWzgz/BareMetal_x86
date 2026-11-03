@@ -9,7 +9,7 @@ ORG 0x7C00
 ; ---------------------------------------------------------------------------
 
 STAGE2_LBA      equ 1
-STAGE2_SECTORS  equ 8               ; 4 KiB, must match stage2 padding
+STAGE2_SECTORS  equ 16              ; 8 KiB, must match stage2 padding
 STAGE2_SEG      equ 0x07E0          ; physical 0x7E00
 BOOT_DRIVE_ADDR equ 0x0500
 

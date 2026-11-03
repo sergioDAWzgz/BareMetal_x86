@@ -4,18 +4,35 @@ ORG 0x7E00
 ; ---------------------------------------------------------------------------
 ; BareMetal_x86 - stage 2
 ;
-; Runs in real mode, loaded by stage 1 at 0x7E00. Initialises COM1, loads the
-; kernel image to 0x10000 through the BIOS extended disk read, enables A20,
-; installs a flat GDT and enters 32-bit protected mode.
+; Runs in real mode, loaded by stage 1 at 0x7E00. It
+;   1. initialises COM1 and reports progress,
+;   2. collects the BIOS E820 memory map for the kernel,
+;   3. loads the kernel image to physical 0x10000,
+;   4. enables A20, installs a GDT and enters 32-bit protected mode,
+;   5. builds 4-level page tables that map the first GiB both identity and at
+;      the higher half base 0xFFFFFFFF80000000,
+;   6. enables long mode and jumps to the kernel virtual entry.
 ; ---------------------------------------------------------------------------
 
-STAGE2_SECTORS  equ 8
+STAGE2_SECTORS  equ 16
 KERNEL_LBA      equ 1 + STAGE2_SECTORS
+KERNEL_PHYS     equ 0x10000
+KERNEL_VIRT     equ 0xFFFFFFFF80010000
 KERNEL_SEG      equ 0x1000              ; physical 0x10000
 KERNEL_CHUNK    equ 64                  ; sectors per read (32 KiB)
 KERNEL_SEG_STEP equ KERNEL_CHUNK * 32   ; 0x0800 paragraphs
+
 BOOT_DRIVE_ADDR equ 0x0500
+E820_COUNT_ADDR equ 0x0504
+E820_BUF_ADDR   equ 0x0508
+E820_MAX        equ 32
+E820_ENTRY_SIZE equ 24
+
 COM1            equ 0x3F8
+
+PML4_ADDR       equ 0x70000
+PDPT_ADDR       equ 0x71000
+PD_ADDR         equ 0x72000
 
 start:
     cli
@@ -30,6 +47,12 @@ start:
 
     mov si, msg_banner
     call puts
+
+    call collect_memory_map
+    mov si, msg_memory
+    call puts
+
+    call check_long_mode
 
     mov si, kdap_low
     mov ah, 0x42
@@ -56,10 +79,64 @@ start:
     mov eax, cr0
     or  eax, 1
     mov cr0, eax
-    jmp 0x08:pm_entry
+    jmp 0x18:pm_entry
 
 .disk_failed:
     mov si, msg_failed
+    call puts
+    jmp halt
+
+; ---------------------------------------------------------------------------
+; collect_memory_map: fills E820_COUNT_ADDR and the entry buffer at
+; E820_BUF_ADDR. Leaves the count at zero when the BIOS has no E820 support.
+; ---------------------------------------------------------------------------
+collect_memory_map:
+    xor ebx, ebx                    ; E820 continuation starts at zero
+    xor bp, bp
+.loop:
+    movzx eax, bp
+    mov ecx, E820_ENTRY_SIZE
+    mul ecx
+    mov edi, E820_BUF_ADDR
+    add edi, eax
+
+    mov eax, 0xE820
+    mov edx, 0x534D4150             ; 'SMAP'
+    mov ecx, E820_ENTRY_SIZE
+    int 0x15
+    jc  .done
+    cmp eax, 0x534D4150
+    jne .done
+
+    inc bp
+    test ebx, ebx
+    jz  .done
+    cmp bp, E820_MAX
+    jb  .loop
+
+.done:
+    movzx eax, bp
+    mov [E820_COUNT_ADDR], eax
+    ret
+
+; ---------------------------------------------------------------------------
+; check_long_mode: halts with a readable message when the CPU cannot run 64-bit
+; code, instead of triple faulting later.
+; ---------------------------------------------------------------------------
+check_long_mode:
+    mov eax, 0x80000000
+    cpuid
+    cmp eax, 0x80000001
+    jb  .unsupported
+
+    mov eax, 0x80000001
+    cpuid
+    test edx, 0x20000000            ; EDX bit 29 = long mode
+    jz  .unsupported
+    ret
+
+.unsupported:
+    mov si, msg_no_long_mode
     call puts
     jmp halt
 
@@ -117,7 +194,9 @@ halt:
     jmp halt
 
 msg_banner: db 13, 10, "stage2: real mode up, COM1 at 115200 8N1", 13, 10, 0
-msg_loaded: db "stage2: kernel loaded at 0x10000, entering protected mode", 13, 10, 0
+msg_memory: db "stage2: BIOS memory map collected", 13, 10, 0
+msg_loaded: db "stage2: kernel loaded at 0x10000", 13, 10, 0
+msg_no_long_mode: db "stage2: this CPU does not support long mode, halting", 13, 10, 0
 msg_failed: db "stage2: kernel read failed", 13, 10, 0
 
 align 4
@@ -138,12 +217,15 @@ kdap_high:
 align 8
 gdt_start:
     dq 0
-gdt_code:                           ; 0x08: flat 32-bit code, ring 0
+gdt_code64:                         ; 0x08: 64-bit code, ring 0
     dw 0xFFFF, 0x0000
-    db 0x00, 0x9A, 0xCF, 0x00
-gdt_data:                           ; 0x10: flat 32-bit data, ring 0
+    db 0x00, 0x9A, 0xAF, 0x00
+gdt_data:                           ; 0x10: flat data, ring 0
     dw 0xFFFF, 0x0000
     db 0x00, 0x92, 0xCF, 0x00
+gdt_code32:                         ; 0x18: flat 32-bit code, ring 0
+    dw 0xFFFF, 0x0000
+    db 0x00, 0x9A, 0xCF, 0x00
 gdt_end:
 
 gdt_descriptor:
@@ -162,6 +244,64 @@ pm_entry:
     mov ss, ax
     mov esp, 0x90000
     mov ebp, esp
-    jmp KERNEL_SEG * 16
 
-times 4096-($-$$) db 0
+    ; --- zero the page tables ---
+    mov edi, PML4_ADDR
+    mov ecx, (3 * 4096) / 4
+    xor eax, eax
+    cld
+    rep stosd
+
+    mov eax, PD_ADDR + 0x3          ; present | writable
+    mov [PDPT_ADDR], eax            ; PDPT[0]   -> PD
+    mov [PDPT_ADDR + 510*8], eax    ; PDPT[510] -> PD
+
+    mov eax, PDPT_ADDR + 0x3
+    mov [PML4_ADDR], eax            ; PML4[0]   -> PDPT (identity)
+    mov [PML4_ADDR + 511*8], eax    ; PML4[511] -> PDPT (higher half)
+
+    ; --- PD: 512 x 2 MiB pages covering the first GiB ---
+    mov edi, PD_ADDR
+    mov eax, 0x83                   ; present | writable | page size
+    mov ecx, 512
+.fill_pd:
+    mov [edi], eax
+    mov dword [edi + 4], 0
+    add eax, 0x200000
+    add edi, 8
+    loop .fill_pd
+
+    ; --- long mode bring-up ---
+    mov eax, cr4
+    or  eax, 0x20                   ; CR4.PAE
+    mov cr4, eax
+
+    mov eax, PML4_ADDR
+    mov cr3, eax
+
+    mov ecx, 0xC0000080             ; IA32_EFER
+    rdmsr
+    or  eax, 0x100                  ; EFER.LME
+    wrmsr
+
+    mov eax, cr0
+    or  eax, 0x80000000             ; CR0.PG
+    mov cr0, eax
+
+    jmp 0x08:long_entry             ; 64-bit code segment
+
+; ---------------------------------------------------------------------------
+BITS 64
+
+long_entry:
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+
+    mov rax, KERNEL_VIRT
+    jmp rax
+
+times 8192-($-$$) db 0

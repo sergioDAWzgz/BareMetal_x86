@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the BareMetal_x86 boot image.
 #
-# Requires: nasm, gcc with 32-bit support, binutils, coreutils.
+# Requires: nasm, gcc with 64-bit freestanding support, binutils, coreutils.
 # Runs on Linux or inside WSL; the build host does not need to be the target.
 set -euo pipefail
 
@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 
 BUILD_DIR=build
 KERNEL_LIMIT=$((64 * 1024))    # stage 2 reads two 32 KiB chunks
-STAGE2_SECTORS=8
+STAGE2_SECTORS=16
 
 CC=${CC:-gcc}
 LD=${LD:-ld}
@@ -17,7 +17,8 @@ NASM=${NASM:-nasm}
 OBJCOPY=${OBJCOPY:-objcopy}
 
 CFLAGS=(
-  -m32 -std=c11 -O2 -Wall -Wextra
+  -m64 -std=c11 -O2 -Wall -Wextra
+  -mcmodel=kernel -mno-red-zone
   -ffreestanding -fno-builtin -fno-pie -fno-stack-protector
   -fno-asynchronous-unwind-tables -fno-unwind-tables
   -mno-sse -mno-sse2 -mno-mmx -msoft-float
@@ -38,12 +39,13 @@ for source in kernel/*.c; do
   objects+=("$object")
 done
 
-step "assemble kernel entry"
-"$NASM" -f elf32 kernel/entry.asm -o "$BUILD_DIR/kernel/entry.o"
-objects=("$BUILD_DIR/kernel/entry.o" "${objects[@]}")
+step "assemble kernel entry and interrupt stubs"
+"$NASM" -f elf64 kernel/entry.asm -o "$BUILD_DIR/kernel/entry.o"
+"$NASM" -f elf64 kernel/isr.asm -o "$BUILD_DIR/kernel/isr.o"
+objects=("$BUILD_DIR/kernel/entry.o" "$BUILD_DIR/kernel/isr.o" "${objects[@]}")
 
 step "link kernel"
-"$LD" -m elf_i386 -T kernel/kernel.ld -o "$BUILD_DIR/kernel.elf" "${objects[@]}"
+"$LD" -m elf_x86_64 -T kernel/kernel.ld -o "$BUILD_DIR/kernel.elf" "${objects[@]}"
 "$OBJCOPY" -O binary "$BUILD_DIR/kernel.elf" "$BUILD_DIR/kernel.bin"
 
 kernel_size=$(stat -c %s "$BUILD_DIR/kernel.bin")
@@ -71,5 +73,5 @@ step "assemble disk image"
 cat "$BUILD_DIR/stage1.bin" "$BUILD_DIR/stage2.bin" "$BUILD_DIR/kernel.bin" > "$BUILD_DIR/baremetal.img"
 truncate -s 1M "$BUILD_DIR/baremetal.img"
 
-printf '\nkernel.bin   %s bytes (limit %s)\n' "$kernel_size" "$KERNEL_LIMIT"
+printf '\nkernel.bin    %s bytes (limit %s)\n' "$kernel_size" "$KERNEL_LIMIT"
 printf 'baremetal.img %s bytes\n' "$(stat -c %s "$BUILD_DIR/baremetal.img")"

@@ -9,7 +9,8 @@ if [ ! -f build/baremetal.img ]; then
   exit 1
 fi
 
-exec qemu-system-i386 \
+exec qemu-system-x86_64 \
+  -machine pc -cpu qemu64 \
   -drive file=build/baremetal.img,format=raw,if=ide,index=0 \
   -m 256 \
   -boot c \
