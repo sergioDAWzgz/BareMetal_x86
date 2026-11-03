@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Builds the BareMetal_x86 boot image.
+# Builds the BareMetal_x86 boot artefacts.
 #
 # Requires: nasm, gcc with 64-bit freestanding support, binutils, coreutils.
+# Optional: gnu-efi and mtools for the UEFI loader and its ESP image.
 # Runs on Linux or inside WSL; the build host does not need to be the target.
 set -euo pipefail
 
@@ -15,6 +16,9 @@ CC=${CC:-gcc}
 LD=${LD:-ld}
 NASM=${NASM:-nasm}
 OBJCOPY=${OBJCOPY:-objcopy}
+MFORMAT=${MFORMAT:-mformat}
+MMD=${MMD:-mmd}
+MCOPY=${MCOPY:-mcopy}
 
 CFLAGS=(
   -m64 -std=c11 -O2 -Wall -Wextra
@@ -69,9 +73,51 @@ if [ "$stage2_size" -ne $((STAGE2_SECTORS * 512)) ]; then
   exit 1
 fi
 
-step "assemble disk image"
-cat "$BUILD_DIR/stage1.bin" "$BUILD_DIR/stage2.bin" "$BUILD_DIR/kernel.bin" > "$BUILD_DIR/baremetal.img"
+step "assemble BIOS disk image"
+cat "$BUILD_DIR/stage1.bin" "$BUILD_DIR/stage2.bin" "$BUILD_DIR/kernel.bin" \
+  > "$BUILD_DIR/baremetal.img"
 truncate -s 1M "$BUILD_DIR/baremetal.img"
+
+if [ -f /usr/lib/crt0-efi-x86_64.o ] && [ -d /usr/include/efi ]; then
+  step "build UEFI loader"
+  mkdir -p "$BUILD_DIR/uefi"
+  UEFI_CFLAGS=(
+    -m64 -std=c11 -O2 -Wall -Wextra
+    -fpic -fshort-wchar -fno-stack-protector -mno-red-zone
+    -mno-sse -mno-mmx -fno-asynchronous-unwind-tables
+    -maccumulate-outgoing-args -DEFI_FUNCTION_WRAPPER
+    -I/usr/include/efi -I/usr/include/efi/x86_64
+  )
+  "$CC" "${UEFI_CFLAGS[@]}" -c boot/uefi/loader.c -o "$BUILD_DIR/uefi/loader.o"
+  "$LD" -shared -Bsymbolic -nostdlib \
+    -T /usr/lib/elf_x86_64_efi.lds \
+    /usr/lib/crt0-efi-x86_64.o "$BUILD_DIR/uefi/loader.o" \
+    -o "$BUILD_DIR/uefi/loader.so" -L/usr/lib -lefi -lgnuefi
+  "$OBJCOPY" --target=efi-app-x86_64 \
+    -j .text -j .sdata -j .data -j .dynamic -j .dynsym \
+    -j .rel -j .rela -j .reloc \
+    "$BUILD_DIR/uefi/loader.so" "$BUILD_DIR/uefi/BOOTX64.EFI"
+else
+  echo "skip: gnu-efi is not installed, UEFI loader not built" >&2
+fi
+
+if [ -f "$BUILD_DIR/uefi/BOOTX64.EFI" ] && command -v "$MFORMAT" >/dev/null 2>&1; then
+  step "build UEFI system partition image"
+  rm -f "$BUILD_DIR/esp.img"
+  "$MFORMAT" -i "$BUILD_DIR/esp.img" -C -T 32768 -h 16 -s 32 ::
+  "$MMD" -i "$BUILD_DIR/esp.img" ::/EFI
+  "$MMD" -i "$BUILD_DIR/esp.img" ::/EFI/BOOT
+  "$MCOPY" -i "$BUILD_DIR/esp.img" "$BUILD_DIR/uefi/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
+  "$MCOPY" -i "$BUILD_DIR/esp.img" "$BUILD_DIR/kernel.bin" ::/EFI/BOOT/KERNEL.BIN
+else
+  echo "skip: mtools or the UEFI loader is missing, ESP image not built" >&2
+fi
 
 printf '\nkernel.bin    %s bytes (limit %s)\n' "$kernel_size" "$KERNEL_LIMIT"
 printf 'baremetal.img %s bytes\n' "$(stat -c %s "$BUILD_DIR/baremetal.img")"
+if [ -f "$BUILD_DIR/uefi/BOOTX64.EFI" ]; then
+  printf 'BOOTX64.EFI   %s bytes\n' "$(stat -c %s "$BUILD_DIR/uefi/BOOTX64.EFI")"
+fi
+if [ -f "$BUILD_DIR/esp.img" ]; then
+  printf 'esp.img       %s bytes\n' "$(stat -c %s "$BUILD_DIR/esp.img")"
+fi

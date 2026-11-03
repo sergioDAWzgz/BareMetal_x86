@@ -1,13 +1,18 @@
+#include "bootinfo.h"
 #include "console.h"
 #include "cpu.h"
+#include "fb.h"
 #include "gdt.h"
 #include "idt.h"
 #include "io.h"
 #include "memory.h"
+#include "pci.h"
 #include "pic.h"
 
 #define TIMER_HZ 100
-#define TICKS_TO_OBSERVE 50
+#define TICKS_TO_OBSERVE 10
+
+extern void divide_error_probe(void);
 
 static void wait_ticks(uint64_t count)
 {
@@ -17,8 +22,6 @@ static void wait_ticks(uint64_t count)
         __asm__ volatile("hlt");
     }
 }
-
-extern void divide_error_probe(void);
 
 static void fault_demo(void)
 {
@@ -55,6 +58,33 @@ static void pmm_demo(void)
     console_write("\n");
 }
 
+static void video_demo(void)
+{
+    if (fb_init() != 0) {
+        console_write("fb: no linear framebuffer available\n");
+        return;
+    }
+
+    console_write("fb: ");
+    console_dec(fb_width());
+    console_write("x");
+    console_dec(fb_height());
+    console_write(" bpp=32 pitch=");
+    console_dec(fb_pitch());
+    console_write(" phys=");
+    console_hex64(fb_physical());
+    console_write("\n");
+
+    if (fb_self_test() != 0) {
+        console_write("fb: pixel readback failed\n");
+        return;
+    }
+
+    console_write("fb: pixel readback self-test passed\n");
+    fb_draw_bars();
+    console_write("fb: colour bars drawn\n");
+}
+
 void kmain(void)
 {
     char brand[49];
@@ -62,10 +92,10 @@ void kmain(void)
     console_init();
 
     console_write("\n");
-    console_write("BareMetal_x86 - phase 2\n");
+    console_write("BareMetal_x86 - phase 3\n");
     console_write("=======================\n");
     console_write("mode:      64-bit long mode (IA-32e)\n");
-    console_write("paging:    4-level, 2 MiB pages, identity + higher half\n");
+    console_write("paging:    4-level, identity + direct map + kernel window\n");
 
     if (cpu_brand(brand) == 0) {
         console_write("cpu:       ");
@@ -92,6 +122,12 @@ void kmain(void)
     pmm_init();
     pmm_demo();
 
+    bootinfo_print();
+    video_demo();
+
+    pci_enumerate();
+    pci_print();
+
     interrupts_enable();
     wait_ticks(TICKS_TO_OBSERVE);
     console_write("pit:       ");
@@ -100,7 +136,7 @@ void kmain(void)
 
     fault_demo();
 
-    console_write("\nPhase 2 complete. Halting.\n");
+    console_write("\nPhase 3 complete. Halting.\n");
     interrupts_disable();
     for (;;) {
         __asm__ volatile("hlt");

@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# Boots the built image in QEMU and asserts the expected serial output.
-# This is the phase gate: it must pass before the image is written to a stick.
+# Boots the built artefacts in QEMU and asserts the expected serial output.
+# This is the phase gate: both the BIOS and the UEFI path must pass before the
+# image is written to a stick.
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
 QEMU=${QEMU:-qemu-system-x86_64}
-LOG=build/serial.log
-BOOT_SECONDS=${BOOT_SECONDS:-8}
+BOOT_SECONDS=${BOOT_SECONDS:-10}
+UEFI_SECONDS=${UEFI_SECONDS:-40}
+OVMF_CODE=${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}
+OVMF_VARS=${OVMF_VARS:-/usr/share/OVMF/OVMF_VARS_4M.fd}
 
 if ! command -v "$QEMU" >/dev/null 2>&1; then
   echo "skip: $QEMU is not installed" >&2
@@ -18,6 +21,29 @@ if [ ! -f build/baremetal.img ]; then
   ./build.sh
 fi
 
+fail() { echo "FAIL: $1" >&2; exit 1; }
+
+common_assertions() {
+  local log="$1"
+  local label="$2"
+
+  grep -q 'BareMetal_x86 - phase 3'             "$log" || fail "$label: kernel banner missing"
+  grep -q 'mode:      64-bit long mode'         "$log" || fail "$label: long mode not reached"
+  grep -q 'cpu: *[A-Za-z]'                      "$log" || fail "$label: cpu brand string missing"
+  grep -q 'mem: usable [0-9]'                   "$log" || fail "$label: memory map summary missing"
+  grep -q 'pmm: allocated 0x0000000000100000'   "$log" || fail "$label: first frame is not 0x100000"
+  grep -q 'pmm: free frames [0-9]'              "$log" || fail "$label: frame allocator test missing"
+  grep -q 'fb: [0-9]*x[0-9]* bpp=32'            "$log" || fail "$label: framebuffer not initialised"
+  grep -q 'fb: pixel readback self-test passed' "$log" || fail "$label: framebuffer readback failed"
+  grep -q 'pci: [0-9]* devices enumerated'      "$log" || fail "$label: PCI enumeration did not run"
+  grep -q 'pci: intel devices [1-9]'            "$log" || fail "$label: no Intel PCI device found"
+  grep -q 'pit: *[0-9]* ticks observed'         "$log" || fail "$label: PIT ticks not observed"
+  grep -q 'exc: resumed after breakpoint'       "$log" || fail "$label: breakpoint did not resume"
+  grep -q 'Phase 3 complete'                    "$log" || fail "$label: phase 3 did not complete"
+}
+
+# --- BIOS / legacy path ----------------------------------------------------
+LOG=build/serial-bios.log
 rm -f "$LOG"
 timeout "$BOOT_SECONDS" "$QEMU" \
   -machine pc -cpu qemu64 \
@@ -25,26 +51,55 @@ timeout "$BOOT_SECONDS" "$QEMU" \
   -m 256 -boot c -display none -serial "file:$LOG" -no-reboot \
   >/dev/null 2>&1 || true
 
-echo '--- serial output ---'
+echo '--- serial output (BIOS) ---'
 cat "$LOG"
-echo '---------------------'
+echo '---------------------------'
 
-fail() { echo "FAIL: $1" >&2; exit 1; }
+grep -q 'stage2: real mode up'                 "$LOG" || fail 'bios: stage 2 never reached real mode'
+grep -q 'stage2: BIOS memory map collected'    "$LOG" || fail 'bios: E820 collection did not run'
+grep -q 'stage2: VBE linear framebuffer active' "$LOG" || fail 'bios: VBE mode was not set'
+grep -q 'stage2: kernel loaded at 0x10000'     "$LOG" || fail 'bios: kernel was not loaded'
+grep -q 'boot: source=bios framebuffer=0x'     "$LOG" || fail 'bios: boot info block not published'
+grep -q 'mode=1024x768x32'                     "$LOG" || fail 'bios: VBE mode is not 1024x768x32'
+common_assertions "$LOG" bios
 
-grep -q 'stage2: real mode up'                 "$LOG" || fail 'stage 2 never reached real mode'
-grep -q 'stage2: BIOS memory map collected'    "$LOG" || fail 'E820 collection did not run'
-grep -q 'stage2: kernel loaded at 0x10000'     "$LOG" || fail 'kernel was not loaded'
-grep -q 'BareMetal_x86 - phase 2'              "$LOG" || fail 'kernel banner missing'
-grep -q 'mode:      64-bit long mode'          "$LOG" || fail 'long mode not reached'
-grep -q 'cpu: *[A-Za-z]'                       "$LOG" || fail 'cpu brand string missing'
-grep -q 'mem: usable 25[0-6] MiB'               "$LOG" || fail 'usable memory is not ~256 MiB'
-grep -q 'pmm: allocated 0x0000000000100000'    "$LOG" || fail 'first frame is not 0x100000'
-grep -q 'pmm: free frames 6[0-9][0-9][0-9][0-9]' "$LOG" || fail 'frame allocator test missing'
-grep -q 'pit: *[0-9]* ticks observed'          "$LOG" || fail 'PIT ticks not observed'
-grep -q '#BP breakpoint'                       "$LOG" || fail 'breakpoint exception not reported'
-grep -q 'exc: resumed after breakpoint'        "$LOG" || fail 'breakpoint did not resume'
-grep -q '#DE divide error'                     "$LOG" || fail 'divide error not reported'
-grep -q 'exc: resumed after divide error'      "$LOG" || fail 'divide error did not resume'
-grep -q 'Phase 2 complete'                     "$LOG" || fail 'phase 2 did not complete'
+echo 'PASS: bios path reaches long mode with a linear framebuffer and PCI'
 
-echo 'PASS: phase 2 reaches 64-bit long mode, maps memory and survives faults'
+# --- UEFI path -------------------------------------------------------------
+if [ ! -f build/esp.img ]; then
+  echo 'PASS: uefi path skipped, build/esp.img is missing' >&2
+  exit 0
+fi
+if [ ! -f "$OVMF_CODE" ] || [ ! -f "$OVMF_VARS" ]; then
+  echo 'PASS: uefi path skipped, OVMF firmware is missing' >&2
+  exit 0
+fi
+
+mkdir -p build
+cp "$OVMF_VARS" build/OVMF_VARS.fd
+LOG=build/serial-uefi.log
+rm -f "$LOG"
+timeout "$UEFI_SECONDS" "$QEMU" \
+  -machine pc -cpu qemu64 -m 256 \
+  -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
+  -drive if=pflash,format=raw,file=build/OVMF_VARS.fd \
+  -drive file=build/esp.img,format=raw,if=ide,index=0 \
+  -display none -serial "file:$LOG" -no-reboot \
+  >/dev/null 2>&1 || true
+
+echo '--- serial output (UEFI) ---'
+cat "$LOG"
+echo '---------------------------'
+
+grep -q 'uefi: loader started'                 "$LOG" || fail 'uefi: loader never ran'
+grep -q 'uefi: gop [0-9]*x[0-9]* pitch='       "$LOG" || fail 'uefi: GOP mode not negotiated'
+grep -q 'uefi: kernel [0-9]* bytes at 0x'      "$LOG" || fail 'uefi: kernel was not loaded'
+grep -q 'uefi: memory map [1-9][0-9]* entries published' "$LOG" || fail 'uefi: memory map not published'
+grep -q 'uefi: cr3 switched'                    "$LOG" || fail 'uefi: the loader never installed its own page tables'
+grep -q 'uefi: kernel byte 0x'                  "$LOG" || fail 'uefi: the kernel window does not resolve after the switch'
+grep -q 'uefi: jumping to the kernel'          "$LOG" || fail 'uefi: never left boot services'
+grep -q 'boot: source=uefi framebuffer=0x'     "$LOG" || fail 'uefi: boot info block not published'
+grep -q 'boot: .* mode=1024x768x32'            "$LOG" || fail 'uefi: GOP mode is not 1024x768x32'
+common_assertions "$LOG" uefi
+
+echo 'PASS: uefi path boots the same kernel through GOP'

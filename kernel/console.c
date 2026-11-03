@@ -7,7 +7,8 @@
 #define VGA_ROWS 25
 #define VGA_ATTR 0x0A
 
-static volatile uint16_t *const vga_text = (volatile uint16_t *)0xFFFFFFFF800B8000ULL;
+/* VGA text buffer seen through the direct map. */
+static volatile uint16_t *const vga_text = (volatile uint16_t *)0xFFFF8000000B8000ULL;
 
 static unsigned int vga_row;
 static unsigned int vga_col;
@@ -100,15 +101,22 @@ void console_write(const char *text)
     }
 }
 
+void console_hex_width(uint64_t value, unsigned int digits)
+{
+    static const char table[] = "0123456789abcdef";
+    unsigned int shift;
+
+    for (shift = digits; shift > 0; shift--) {
+        unsigned int nibble = (unsigned int)((value >> ((shift - 1) * 4)) & 0x0F);
+
+        console_putc(table[nibble]);
+    }
+}
+
 void console_hex64(uint64_t value)
 {
-    static const char digits[] = "0123456789abcdef";
-    int shift;
-
     console_write("0x");
-    for (shift = 60; shift >= 0; shift -= 4) {
-        console_putc(digits[(value >> (unsigned int)shift) & 0x0F]);
-    }
+    console_hex_width(value, 16);
 }
 
 void console_dec(uint64_t value)

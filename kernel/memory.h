@@ -3,9 +3,10 @@
 
 #include <stdint.h>
 
-/* The loader maps the first GiB at this base, so physical address X is also
-   reachable as a kernel virtual address. */
-#define PHYS_BASE 0xFFFFFFFF80000000ULL
+/* Both loaders build a direct map of the first 4 GiB at this base, so physical
+   address X is also reachable as a kernel virtual address. The kernel itself is
+   linked in a separate 2 MiB window at KERNEL_BASE. */
+#define PHYS_BASE 0xFFFF800000000000ULL
 #define PHYS_TO_VIRT(address) ((void *)(uintptr_t)((uint64_t)(address) + PHYS_BASE))
 
 typedef struct __attribute__((packed)) {

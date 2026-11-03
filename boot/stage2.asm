@@ -2,21 +2,21 @@ BITS 16
 ORG 0x7E00
 
 ; ---------------------------------------------------------------------------
-; BareMetal_x86 - stage 2
+; BareMetal_x86 - stage 2 (BIOS path)
 ;
 ; Runs in real mode, loaded by stage 1 at 0x7E00. It
 ;   1. initialises COM1 and reports progress,
 ;   2. collects the BIOS E820 memory map for the kernel,
-;   3. loads the kernel image to physical 0x10000,
-;   4. enables A20, installs a GDT and enters 32-bit protected mode,
-;   5. builds 4-level page tables that map the first GiB both identity and at
-;      the higher half base 0xFFFFFFFF80000000,
-;   6. enables long mode and jumps to the kernel virtual entry.
+;   3. sets a VBE linear framebuffer mode and publishes the boot info block,
+;   4. loads the kernel image to physical 0x10000,
+;   5. enables A20, installs a GDT and enters 32-bit protected mode,
+;   6. builds 4-level page tables with an identity map, a direct map at
+;      0xFFFF800000000000 and the kernel at 0xFFFFFFFF80000000,
+;   7. enables long mode and jumps to the kernel virtual entry.
 ; ---------------------------------------------------------------------------
 
 STAGE2_SECTORS  equ 16
 KERNEL_LBA      equ 1 + STAGE2_SECTORS
-KERNEL_PHYS     equ 0x10000
 KERNEL_VIRT     equ 0xFFFFFFFF80010000
 KERNEL_SEG      equ 0x1000              ; physical 0x10000
 KERNEL_CHUNK    equ 64                  ; sectors per read (32 KiB)
@@ -25,14 +25,28 @@ KERNEL_SEG_STEP equ KERNEL_CHUNK * 32   ; 0x0800 paragraphs
 BOOT_DRIVE_ADDR equ 0x0500
 E820_COUNT_ADDR equ 0x0504
 E820_BUF_ADDR   equ 0x0508
-E820_MAX        equ 32
+E820_MAX        equ 64
 E820_ENTRY_SIZE equ 24
+
+BOOT_INFO_ADDR  equ 0x0C00
+BOOT_INFO_MAGIC equ 0x424D5833          ; 'BMX3'
+BOOT_SOURCE_BIOS equ 1
+
+VBE_INFO_ADDR   equ 0x3000              ; ModeInfoBlock scratch
+VBE_CTRL_ADDR   equ 0x2000              ; VbeInfoBlock scratch
+VBE_MODES_ADDR  equ 0x2400              ; flattened mode list
+VBE_MAX_MODES   equ 512
+VBE_LINEAR      equ 0x4000              ; request the linear framebuffer
+VBE_WANT_W      equ 1024
+VBE_WANT_H      equ 768
+VBE_WANT_BPP    equ 32
 
 COM1            equ 0x3F8
 
-PML4_ADDR       equ 0x70000
-PDPT_ADDR       equ 0x71000
-PD_ADDR         equ 0x72000
+PT_BASE         equ 0x70000             ; PML4
+PDPT_DIRECT     equ 0x71000             ; direct map / identity PDPT
+PDPT_KERNEL     equ 0x72000             ; kernel higher half PDPT
+PD_BASE         equ 0x73000             ; four page directories, 4 GiB
 
 start:
     cli
@@ -53,6 +67,7 @@ start:
     call puts
 
     call check_long_mode
+    call setup_video_mode
 
     mov si, kdap_low
     mov ah, 0x42
@@ -141,6 +156,125 @@ check_long_mode:
     jmp halt
 
 ; ---------------------------------------------------------------------------
+; setup_video_mode: publishes the boot info block and, when VBE is available,
+; switches to a linear framebuffer mode.
+; ---------------------------------------------------------------------------
+setup_video_mode:
+    mov dword [BOOT_INFO_ADDR + 0x00], BOOT_INFO_MAGIC
+    mov dword [BOOT_INFO_ADDR + 0x04], BOOT_SOURCE_BIOS
+    mov dword [BOOT_INFO_ADDR + 0x08], 0
+    mov dword [BOOT_INFO_ADDR + 0x0C], 0
+    mov dword [BOOT_INFO_ADDR + 0x10], 0
+    mov dword [BOOT_INFO_ADDR + 0x14], 0
+    mov dword [BOOT_INFO_ADDR + 0x18], 0
+    mov dword [BOOT_INFO_ADDR + 0x1C], 0
+    mov dword [BOOT_INFO_ADDR + 0x20], 0
+    mov dword [BOOT_INFO_ADDR + 0x24], 0
+
+    ; --- ask the controller for its mode list ---
+    mov dword [VBE_CTRL_ADDR], 0x41534556   ; 'VESA'
+    mov ax, 0x4F00
+    mov di, VBE_CTRL_ADDR
+    int 0x10
+    cmp ax, 0x004F
+    jne .no_vbe
+
+    ; Flatten the far mode list into low memory so a BIOS that clobbers the
+    ; segment registers cannot break the scan.
+    mov ax, [VBE_CTRL_ADDR + 0x10]
+    mov fs, ax
+    mov si, [VBE_CTRL_ADDR + 0x0E]
+    mov di, VBE_MODES_ADDR
+    mov cx, VBE_MAX_MODES - 1
+.copy_modes:
+    mov ax, [fs:si]
+    mov [di], ax
+    cmp ax, 0xFFFF
+    je  .modes_copied
+    add si, 2
+    add di, 2
+    loop .copy_modes
+.modes_copied:
+    xor ax, ax
+    mov fs, ax
+
+    ; --- pick the first 1024x768x32 mode in the list ---
+    mov word [vbe_index], 0
+.scan:
+    mov bx, [vbe_index]
+    mov cx, [VBE_MODES_ADDR + bx]
+    cmp cx, 0xFFFF
+    je  .no_vbe
+
+    mov ax, 0x4F01
+    mov di, VBE_INFO_ADDR
+    int 0x10
+    cmp ax, 0x004F
+    jne .next_mode
+    cmp word [VBE_INFO_ADDR + 0x12], VBE_WANT_W
+    jne .next_mode
+    cmp word [VBE_INFO_ADDR + 0x14], VBE_WANT_H
+    jne .next_mode
+    cmp byte [VBE_INFO_ADDR + 0x19], VBE_WANT_BPP
+    jne .next_mode
+    jmp .mode_found
+
+.next_mode:
+    inc word [vbe_index]
+    jmp .scan
+
+.mode_found:
+    mov [vbe_chosen], cx
+    mov ax, 0x4F02                  ; set mode with the linear framebuffer
+    mov bx, cx
+    or  bx, VBE_LINEAR
+    int 0x10
+    cmp ax, 0x004F
+    jne .no_vbe
+
+    mov ax, 0x4F01                  ; re-read the mode info after the switch
+    mov cx, [vbe_chosen]
+    mov di, VBE_INFO_ADDR
+    int 0x10
+    cmp ax, 0x004F
+    jne .no_vbe
+
+    movzx eax, word [VBE_INFO_ADDR + 0x10]  ; bytes per scanline
+    mov [BOOT_INFO_ADDR + 0x18], eax
+    movzx eax, word [VBE_INFO_ADDR + 0x12]  ; x resolution
+    mov [BOOT_INFO_ADDR + 0x10], eax
+    movzx eax, word [VBE_INFO_ADDR + 0x14]  ; y resolution
+    mov [BOOT_INFO_ADDR + 0x14], eax
+    movzx eax, byte [VBE_INFO_ADDR + 0x19]  ; bits per pixel
+    mov [BOOT_INFO_ADDR + 0x1C], eax
+
+    mov eax, [VBE_INFO_ADDR + 0x28]         ; physical framebuffer base
+    mov [BOOT_INFO_ADDR + 0x08], eax
+    mov dword [BOOT_INFO_ADDR + 0x0C], 0
+
+    mov al, [VBE_INFO_ADDR + 0x1F]          ; red mask size
+    mov [BOOT_INFO_ADDR + 0x20], al
+    mov al, [VBE_INFO_ADDR + 0x20]          ; red field position
+    mov [BOOT_INFO_ADDR + 0x21], al
+    mov al, [VBE_INFO_ADDR + 0x21]          ; green mask size
+    mov [BOOT_INFO_ADDR + 0x22], al
+    mov al, [VBE_INFO_ADDR + 0x22]          ; green field position
+    mov [BOOT_INFO_ADDR + 0x23], al
+    mov al, [VBE_INFO_ADDR + 0x23]          ; blue mask size
+    mov [BOOT_INFO_ADDR + 0x24], al
+    mov al, [VBE_INFO_ADDR + 0x24]          ; blue field position
+    mov [BOOT_INFO_ADDR + 0x25], al
+
+    mov si, msg_video
+    call puts
+    ret
+
+.no_vbe:
+    mov si, msg_no_video
+    call puts
+    ret
+
+; ---------------------------------------------------------------------------
 serial_init:
     mov dx, COM1 + 1                ; no UART interrupts
     xor al, al
@@ -195,9 +329,15 @@ halt:
 
 msg_banner: db 13, 10, "stage2: real mode up, COM1 at 115200 8N1", 13, 10, 0
 msg_memory: db "stage2: BIOS memory map collected", 13, 10, 0
+msg_video: db "stage2: VBE linear framebuffer active", 13, 10, 0
+msg_no_video: db "stage2: VBE unavailable, continuing without framebuffer", 13, 10, 0
 msg_loaded: db "stage2: kernel loaded at 0x10000", 13, 10, 0
-msg_no_long_mode: db "stage2: this CPU does not support long mode, halting", 13, 10, 0
 msg_failed: db "stage2: kernel read failed", 13, 10, 0
+msg_no_long_mode: db "stage2: this CPU does not support long mode, halting", 13, 10, 0
+
+align 2
+vbe_index:  dw 0
+vbe_chosen: dw 0
 
 align 4
 kdap_low:
@@ -245,25 +385,38 @@ pm_entry:
     mov esp, 0x90000
     mov ebp, esp
 
-    ; --- zero the page tables ---
-    mov edi, PML4_ADDR
-    mov ecx, (3 * 4096) / 4
+    ; --- zero the page tables: PML4, two PDPTs and four PDs ---
+    mov edi, PT_BASE
+    mov ecx, (7 * 4096) / 4
     xor eax, eax
     cld
     rep stosd
 
-    mov eax, PD_ADDR + 0x3          ; present | writable
-    mov [PDPT_ADDR], eax            ; PDPT[0]   -> PD
-    mov [PDPT_ADDR + 510*8], eax    ; PDPT[510] -> PD
+    ; PML4: identity, direct map and kernel
+    mov eax, PDPT_DIRECT + 0x3
+    mov [PT_BASE], eax                      ; PML4[0]   -> identity
+    mov [PT_BASE + 256*8], eax              ; PML4[256] -> direct map 0xFFFF800000000000
+    mov eax, PDPT_KERNEL + 0x3
+    mov [PT_BASE + 511*8], eax              ; PML4[511] -> kernel 0xFFFFFFFF80000000
 
-    mov eax, PDPT_ADDR + 0x3
-    mov [PML4_ADDR], eax            ; PML4[0]   -> PDPT (identity)
-    mov [PML4_ADDR + 511*8], eax    ; PML4[511] -> PDPT (higher half)
+    ; PDPT_DIRECT[0..3] -> PD0..PD3
+    mov eax, PD_BASE + 0x3
+    xor ecx, ecx
+.fill_pdpt:
+    mov [PDPT_DIRECT + ecx*8], eax
+    add eax, 4096
+    inc ecx
+    cmp ecx, 4
+    jb  .fill_pdpt
 
-    ; --- PD: 512 x 2 MiB pages covering the first GiB ---
-    mov edi, PD_ADDR
-    mov eax, 0x83                   ; present | writable | page size
-    mov ecx, 512
+    ; PDPT_KERNEL[510] -> PD0, so 0xFFFFFFFF80000000 maps physical 0
+    mov eax, PD_BASE + 0x3
+    mov [PDPT_KERNEL + 510*8], eax
+
+    ; PD0..PD3: 2048 x 2 MiB pages covering the first 4 GiB
+    mov edi, PD_BASE
+    mov eax, 0x83                           ; present | writable | page size
+    mov ecx, 2048
 .fill_pd:
     mov [edi], eax
     mov dword [edi + 4], 0
@@ -273,22 +426,22 @@ pm_entry:
 
     ; --- long mode bring-up ---
     mov eax, cr4
-    or  eax, 0x20                   ; CR4.PAE
+    or  eax, 0x20                           ; CR4.PAE
     mov cr4, eax
 
-    mov eax, PML4_ADDR
+    mov eax, PT_BASE
     mov cr3, eax
 
-    mov ecx, 0xC0000080             ; IA32_EFER
+    mov ecx, 0xC0000080                     ; IA32_EFER
     rdmsr
-    or  eax, 0x100                  ; EFER.LME
+    or  eax, 0x100                          ; EFER.LME
     wrmsr
 
     mov eax, cr0
-    or  eax, 0x80000000             ; CR0.PG
+    or  eax, 0x80000000                     ; CR0.PG
     mov cr0, eax
 
-    jmp 0x08:long_entry             ; 64-bit code segment
+    jmp 0x08:long_entry                     ; 64-bit code segment
 
 ; ---------------------------------------------------------------------------
 BITS 64
