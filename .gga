@@ -7,7 +7,7 @@
 #   PROVIDER="claude"
 #   PROVIDER="gemini"
 #   PROVIDER="codex"
-   PROVIDER="opencode"
+   PROVIDER="opencode:opencode/deepseek-v4.1-flash-free"
 #   PROVIDER="opencode:anthropic/claude-opus-4-5"
 #   PROVIDER="cursor"
 #   PROVIDER="cursor:composer-2"

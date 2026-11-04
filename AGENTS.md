@@ -56,3 +56,11 @@ Bare-metal x86 kernel. No operating system, no libc, no runtime below this code.
 - Conventional commits, no AI attribution trailers.
 - Every phase must pass `./test.sh` on both the BIOS and the UEFI path before it
   is considered done.
+
+## Review output
+
+- End with exactly one line, either `STATUS: PASSED` or `STATUS: FAILED`, as the
+  first characters of the line. No markdown emphasis, no bold, no bullet, no
+  trailing text: the pre-commit hook parses that line literally and rejects the
+  commit when it cannot find it.
+- Put the reasoning above that line, never after it.
