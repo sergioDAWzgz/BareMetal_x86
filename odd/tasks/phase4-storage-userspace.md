@@ -54,6 +54,8 @@ ahci: abar 0x<hex> ports <dec>
 ahci: port <dec> attached
 ahci: read <dec> bytes from port <dec> lba <dec>
 fat32: volume BMXDATA sectors <dec> clusters <dec>
+fat32: HELLO.TXT <dec> bytes
+fat32: content read from the fat32 volume
 fat32: USER.ELF <dec> bytes
 ramdisk: staged USER.ELF <dec> bytes at 0x<hex>
 elf: USER.ELF entry 0x<hex> segments <dec> pages <dec>
@@ -69,10 +71,11 @@ Phase 4 complete
 - **T1** - AHCI. `kernel/ahci.c`, `kernel/ahci.h`, contiguous frame allocation in
   `kernel/memory.c`, the data disk on an `ich9-ahci` controller in `test.sh`, the
   kernel printing the controller and doing a real sector read. Covers S1, part of
-  S5. Route: inline.
+  S5. Route: inline. Done in `96ec0a1`.
 - **T2** - FAT32. `kernel/fat32.c`, `kernel/fat32.h`, `build.sh` building
   `build/data.img` with the volume label `BMXDATA`, the kernel mounting it and
-  listing `USER.ELF`. Covers S2 (read side), S5. Route: inline.
+  reading `HELLO.TXT`. Covers S2 (read side), S5. Route: inline. Done in
+  `a91b86b`.
 - **T3** - ramdisk, address space and ELF loader. `kernel/ramdisk.c`,
   `kernel/ramdisk.h`, `kernel/vmm.c`, `kernel/vmm.h`, `kernel/elf.c`,
   `kernel/elf.h`, plus the loader reading the staged file into user pages and
@@ -127,3 +130,23 @@ all come from it instead of growing `.bss`.
 Ordering decision. Phase 4 runs before the interactive keyboard echo loop so the
 q35 and UEFI paths, which get no keystrokes, still reach the gate. `Phase 3
 complete` keeps its position in the log.
+
+### L3 (evidence, 2026-11-04)
+
+T1 gate was weaker than it looked: `ahci: read 512 bytes from port N lba 0`
+passed while the buffer held zeros, because the command header was built with
+`header[0] = CFL` and `header[1] = PRDTL` instead of `header[0] = CFL | PRDTL <<
+16` and `header[1] = PRDBC`. The HBA read PRDTL as zero, completed the command
+with a D2H Register FIS and no error, and never touched the bounce buffer.
+
+The second defect was ours in the FIS: READ DMA EXT counts real sectors and
+reserves zero for 65536, while the PRDT byte count is `n - 1`. Encoding
+`sectors - 1` asked the device for a 65536-sector transfer against a 512-byte
+PRDT, so it again completed without moving data. Both defects produced the same
+symptom, which is why the FAT32 mount reported "the volume has no boot
+signature" for a volume `mdir` reads perfectly.
+
+The gate assertion was what let the first defect through, so it now checks
+content instead of success: `fat32: HELLO.TXT 27 bytes` and
+`fat32: content read from the fat32 volume` cannot be satisfied by zeros. A
+successful AHCI read is therefore proven by data, not by a return code.
