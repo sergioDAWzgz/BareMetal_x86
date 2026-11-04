@@ -76,6 +76,12 @@ common_assertions() {
   grep -q 'fat32: HELLO.TXT 27 bytes'           "$log" || fail "$label: the FAT32 file was not found"
   grep -q 'fat32: content read from the fat32 volume' "$log" \
     || fail "$label: the FAT32 file content was not read back"
+  grep -q 'ramdisk: staged USER.ELF [0-9][0-9]* bytes at 0x[0-9a-f]*' "$log" \
+    || fail "$label: the user program was not staged in RAM"
+  grep -q 'elf: USER.ELF entry 0x[0-9a-f]* segments [1-9][0-9]* pages [1-9][0-9]*' "$log" \
+    || fail "$label: the user program was not loaded into user pages"
+  grep -q 'vmm: supervisor entries 0 above the user window' "$log" \
+    || fail "$label: a mapping outside the user window is reachable from ring 3"
   grep -q 'pit: *[0-9]* ticks observed'         "$log" || fail "$label: PIT ticks not observed"
   grep -q 'exc: resumed after breakpoint'       "$log" || fail "$label: breakpoint did not resume"
   grep -q 'exc: resumed after divide error'     "$log" || fail "$label: divide error did not resume"

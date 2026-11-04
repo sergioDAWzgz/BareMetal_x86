@@ -3,6 +3,7 @@
 #include "bootinfo.h"
 #include "console.h"
 #include "cpu.h"
+#include "elf.h"
 #include "fat32.h"
 #include "fb.h"
 #include "fbtext.h"
@@ -13,6 +14,8 @@
 #include "memory.h"
 #include "pci.h"
 #include "pic.h"
+#include "ramdisk.h"
+#include "vmm.h"
 
 #define TIMER_HZ 100
 #define TICKS_TO_OBSERVE 10
@@ -177,6 +180,8 @@ static void phase4(void)
     uint8_t sector[AHCI_SECTOR_SIZE];
     uint8_t content[AHCI_SECTOR_SIZE];
     fat32_file_t file;
+    ramdisk_file_t staged;
+    elf_image_t image;
     int32_t size;
 
     if (ahci_init() != 0) {
@@ -230,6 +235,43 @@ static void phase4(void)
     console_write(" bytes\n");
     console_write("fat32: content ");
     console_write((const char *)content);
+
+    if (ramdisk_stage("USER.ELF", &staged) != 0) {
+        console_write("ramdisk: ");
+        console_write(ramdisk_error());
+        console_write("\n");
+        return;
+    }
+    ramdisk_print("USER.ELF", &staged);
+
+    /* The user window is a subtree of the live page map, so the loader can only
+       place pages once that subtree exists. */
+    if (vmm_init() != 0) {
+        console_write("vmm: ");
+        console_write(vmm_error());
+        console_write("\n");
+        return;
+    }
+    if (elf_load(staged.data, staged.size, &image) != 0) {
+        console_write("elf: ");
+        console_write(elf_error());
+        console_write("\n");
+        return;
+    }
+
+    /* The user subtree is the only one allowed to carry U/S = 1, so the check is
+       reported either way: zero is a pass, anything else names the count. */
+    console_write("vmm: supervisor entries ");
+    console_dec(vmm_audit_supervisor());
+    console_write(" above the user window\n");
+
+    console_write("elf: USER.ELF entry ");
+    console_hex64(image.entry);
+    console_write(" segments ");
+    console_dec(image.segments);
+    console_write(" pages ");
+    console_dec(image.pages);
+    console_write("\n");
 }
 
 void kmain(void)

@@ -113,6 +113,23 @@ else
   echo "skip: mtools or the UEFI loader is missing, ESP image not built" >&2
 fi
 
+# The user program. It is a separate link with its own flags: the kernel is
+# linked for the higher half with the kernel code model, and this one is linked
+# into the user window at 0x0000008000000000, which only the large code model
+# can address with a 32-bit displacement-free sequence.
+step "build user program"
+USER_CFLAGS=(
+  -m64 -std=c11 -O2 -Wall -Wextra
+  -mcmodel=large -mno-red-zone
+  -ffreestanding -fno-builtin -fno-pie -fno-stack-protector
+  -fno-asynchronous-unwind-tables -fno-unwind-tables
+  -mno-sse -mno-sse2 -mno-mmx -msoft-float
+)
+"$NASM" -f elf64 user/crt0.asm -o "$BUILD_DIR/crt0.o"
+"$CC" "${USER_CFLAGS[@]}" -c user/main.c -o "$BUILD_DIR/user-main.o"
+"$LD" -m elf_x86_64 -nostdlib -T user/link.ld \
+  -o "$BUILD_DIR/USER.ELF" "$BUILD_DIR/crt0.o" "$BUILD_DIR/user-main.o"
+
 # The data volume the kernel mounts in phase 4. It is a real FAT32 filesystem
 # with a known label, so the kernel's read-only driver is checked against an
 # image any other system can inspect, and the label lets the kernel pick the
@@ -127,6 +144,7 @@ fi
 rm -f "$DATA_IMAGE"
 "$MFORMAT" -i "$DATA_IMAGE" -C -F -T "$DATA_SECTORS" -v BMXDATA ::
 "$MCOPY" -i "$DATA_IMAGE" data/HELLO.TXT ::/HELLO.TXT
+"$MCOPY" -i "$DATA_IMAGE" "$BUILD_DIR/USER.ELF" ::/USER.ELF
 
 printf '\nkernel.bin    %s bytes (limit %s)\n' "$kernel_size" "$KERNEL_LIMIT"
 printf 'baremetal.img %s bytes\n' "$(stat -c %s "$BUILD_DIR/baremetal.img")"
