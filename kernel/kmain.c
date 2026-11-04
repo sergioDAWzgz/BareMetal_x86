@@ -3,6 +3,7 @@
 #include "bootinfo.h"
 #include "console.h"
 #include "cpu.h"
+#include "fat32.h"
 #include "fb.h"
 #include "fbtext.h"
 #include "gdt.h"
@@ -174,7 +175,9 @@ static void keyboard_echo_loop(void)
 static void phase4(void)
 {
     uint8_t sector[AHCI_SECTOR_SIZE];
-    uint32_t index;
+    uint8_t content[AHCI_SECTOR_SIZE];
+    fat32_file_t file;
+    int32_t size;
 
     if (ahci_init() != 0) {
         console_write("ahci: ");
@@ -193,6 +196,40 @@ static void phase4(void)
     console_write("ahci: read 512 bytes from port ");
     console_dec(ahci_port_number(0));
     console_write(" lba 0\n");
+
+    if (fat32_mount() != 0) {
+        console_write("fat32: ");
+        console_write(fat32_error());
+        console_write("\n");
+        return;
+    }
+    fat32_print();
+
+    if (fat32_open("HELLO.TXT", &file) != 0) {
+        console_write("fat32: ");
+        console_write(fat32_error());
+        console_write("\n");
+        return;
+    }
+    if (file.size >= sizeof(content)) {
+        console_write("fat32: HELLO.TXT does not fit the staging buffer\n");
+        return;
+    }
+
+    size = fat32_read(&file, content, sizeof(content));
+    if (size < 0) {
+        console_write("fat32: ");
+        console_write(fat32_error());
+        console_write("\n");
+        return;
+    }
+    content[size] = '\0';
+
+    console_write("fat32: HELLO.TXT ");
+    console_dec((uint64_t)size);
+    console_write(" bytes\n");
+    console_write("fat32: content ");
+    console_write((const char *)content);
 }
 
 void kmain(void)

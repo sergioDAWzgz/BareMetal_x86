@@ -330,8 +330,10 @@ static int issue_read(const ahci_port_t *entry, uint64_t lba, uint32_t sectors)
     fis[9] = (uint8_t)((lba >> 32) & 0xFFu);
     fis[10] = (uint8_t)((lba >> 40) & 0xFFu);
     fis[11] = 0x00;                     /* features, high */
-    fis[12] = (uint8_t)((sectors - 1) & 0xFFu);
-    fis[13] = (uint8_t)(((sectors - 1) >> 8) & 0xFFu);
+    /* READ DMA EXT counts real sectors and reserves zero for 65536, unlike a
+       SCSI CDB or the PRDT byte count below, which are both encoded as n - 1. */
+    fis[12] = (uint8_t)(sectors & 0xFFu);
+    fis[13] = (uint8_t)((sectors >> 8) & 0xFFu);
     fis[14] = 0x00;
     fis[15] = 0x00;                     /* control */
 
@@ -339,13 +341,16 @@ static int issue_read(const ahci_port_t *entry, uint64_t lba, uint32_t sectors)
     prdt[0] = (uint32_t)(bounce_phys & 0xFFFFFFFFu);
     prdt[1] = (uint32_t)(bounce_phys >> 32);
     prdt[2] = 0;
-    prdt[3] = (bytes - 1) | (1u << 31); /* byte count, interrupt on completion */
+    prdt[3] = (bytes - 1) | (1u << 31); /* byte count - 1, interrupt on completion */
 
-    header[0] = 5u;                     /* command FIS length in dwords */
-    header[1] = 1u;                     /* one PRDT entry */
-    header[2] = 0;
-    header[3] = (uint32_t)(table_phys & 0xFFFFFFFFu);
-    header[4] = (uint32_t)(table_phys >> 32);
+    /* Command header, 32 bytes: CFL and PRDTL share the first dword, the HBA
+       writes the transferred byte count into the second, and the command table
+       address follows as a 64-bit physical address. */
+    header[0] = 5u | (1u << 16);        /* five FIS dwords, one PRDT entry */
+    header[1] = 0;                      /* transferred bytes, set by the HBA */
+    header[2] = (uint32_t)(table_phys & 0xFFFFFFFFu);
+    header[3] = (uint32_t)(table_phys >> 32);
+    header[4] = 0;
     header[5] = 0;
     header[6] = 0;
     header[7] = 0;

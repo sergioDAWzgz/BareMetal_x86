@@ -71,6 +71,11 @@ common_assertions() {
   grep -q 'ahci: abar 0x[0-9a-f]* ports [1-9][0-9]*' "$log" || fail "$label: the AHCI controller was not found"
   grep -q 'ahci: port [0-9][0-9]* attached'     "$log" || fail "$label: no SATA port with a drive"
   grep -q 'ahci: read 512 bytes from port [0-9][0-9]* lba 0' "$log" || fail "$label: no sector could be read from the SATA port"
+  grep -q 'fat32: volume BMXDATA sectors [0-9][0-9]* clusters [0-9][0-9]*' "$log" \
+    || fail "$label: the FAT32 volume was not mounted"
+  grep -q 'fat32: HELLO.TXT 27 bytes'           "$log" || fail "$label: the FAT32 file was not found"
+  grep -q 'fat32: content read from the fat32 volume' "$log" \
+    || fail "$label: the FAT32 file content was not read back"
   grep -q 'pit: *[0-9]* ticks observed'         "$log" || fail "$label: PIT ticks not observed"
   grep -q 'exc: resumed after breakpoint'       "$log" || fail "$label: breakpoint did not resume"
   grep -q 'exc: resumed after divide error'     "$log" || fail "$label: divide error did not resume"

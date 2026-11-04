@@ -126,6 +126,7 @@ if ! command -v "$MFORMAT" >/dev/null 2>&1 || ! command -v "$MCOPY" >/dev/null 2
 fi
 rm -f "$DATA_IMAGE"
 "$MFORMAT" -i "$DATA_IMAGE" -C -F -T "$DATA_SECTORS" -v BMXDATA ::
+"$MCOPY" -i "$DATA_IMAGE" data/HELLO.TXT ::/HELLO.TXT
 
 printf '\nkernel.bin    %s bytes (limit %s)\n' "$kernel_size" "$KERNEL_LIMIT"
 printf 'baremetal.img %s bytes\n' "$(stat -c %s "$BUILD_DIR/baremetal.img")"

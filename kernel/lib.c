@@ -21,8 +21,7 @@ void *memcpy(void *dst, const void *src, size_t count)
     return dst;
 }
 
-void *memmove(void *dst, const void *src, size_t count)
-{
+void *memmove(void *dst, const void *src, size_t count){
     unsigned char *out = (unsigned char *)dst;
     const unsigned char *in = (const unsigned char *)src;
 
@@ -38,4 +37,19 @@ void *memmove(void *dst, const void *src, size_t count)
         }
     }
     return dst;
+}
+
+int memcmp(const void *first, const void *second, size_t count)
+{
+    const unsigned char *a = (const unsigned char *)first;
+    const unsigned char *b = (const unsigned char *)second;
+
+    while (count-- > 0) {
+        if (*a != *b) {
+            return (int)*a - (int)*b;
+        }
+        a++;
+        b++;
+    }
+    return 0;
 }
