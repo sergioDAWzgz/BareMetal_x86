@@ -113,8 +113,23 @@ else
   echo "skip: mtools or the UEFI loader is missing, ESP image not built" >&2
 fi
 
+# The data volume the kernel mounts in phase 4. It is a real FAT32 filesystem
+# with a known label, so the kernel's read-only driver is checked against an
+# image any other system can inspect, and the label lets the kernel pick the
+# volume by content instead of by controller or port position.
+step "build data volume"
+DATA_SECTORS=$((64 * 2048))            # 64 MiB: FAT32 wants more clusters than 16-bit FAT can address
+DATA_IMAGE="$BUILD_DIR/data.img"
+if ! command -v "$MFORMAT" >/dev/null 2>&1 || ! command -v "$MCOPY" >/dev/null 2>&1; then
+  echo "error: mtools is required to build the data volume" >&2
+  exit 1
+fi
+rm -f "$DATA_IMAGE"
+"$MFORMAT" -i "$DATA_IMAGE" -C -F -T "$DATA_SECTORS" -v BMXDATA ::
+
 printf '\nkernel.bin    %s bytes (limit %s)\n' "$kernel_size" "$KERNEL_LIMIT"
 printf 'baremetal.img %s bytes\n' "$(stat -c %s "$BUILD_DIR/baremetal.img")"
+printf 'data.img      %s bytes\n' "$(stat -c %s "$DATA_IMAGE")"
 if [ -f "$BUILD_DIR/uefi/BOOTX64.EFI" ]; then
   printf 'BOOTX64.EFI   %s bytes\n' "$(stat -c %s "$BUILD_DIR/uefi/BOOTX64.EFI")"
 fi

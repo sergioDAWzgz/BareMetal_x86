@@ -25,6 +25,13 @@ void memmap_print(void);
 
 void pmm_init(void);
 uintptr_t pmm_alloc_frame(void);
+
+/* Allocates count physically contiguous frames and returns the physical address
+   of the first one, or 0 when no run that long is free. DMA needs contiguity:
+   a PRDT and the direct map both describe memory by physical address, so frames
+   handed out one at a time cannot be spliced back together. */
+uintptr_t pmm_alloc_frames(uint64_t count);
+
 void pmm_free_frame(uintptr_t frame);
 uint64_t pmm_free_frames(void);
 

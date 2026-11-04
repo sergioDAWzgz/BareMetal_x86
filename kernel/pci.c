@@ -28,6 +28,19 @@ uint16_t pci_config_read16(uint8_t bus, uint8_t slot, uint8_t function, uint8_t 
     return (uint16_t)((value >> ((offset & 2u) * 8u)) & 0xFFFFu);
 }
 
+void pci_config_write32(uint8_t bus, uint8_t slot, uint8_t function, uint8_t offset,
+                        uint32_t value)
+{
+    uint32_t address = 0x80000000u |
+                       ((uint32_t)bus << 16) |
+                       ((uint32_t)slot << 11) |
+                       ((uint32_t)function << 8) |
+                       ((uint32_t)offset & 0xFCu);
+
+    outl(PCI_CONFIG_ADDRESS, address);
+    outl(PCI_CONFIG_DATA, value);
+}
+
 static void print_hex16(uint16_t value)
 {
     console_hex_width(value, 4);

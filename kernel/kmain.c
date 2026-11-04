@@ -1,4 +1,5 @@
 #include "acpi.h"
+#include "ahci.h"
 #include "bootinfo.h"
 #include "console.h"
 #include "cpu.h"
@@ -167,6 +168,33 @@ static void keyboard_echo_loop(void)
     }
 }
 
+/* Phase 4: the storage path from the SATA port to a user process. Each step
+   fails loudly and stops the chain, because a later step would only read a
+   buffer the earlier one never filled. */
+static void phase4(void)
+{
+    uint8_t sector[AHCI_SECTOR_SIZE];
+    uint32_t index;
+
+    if (ahci_init() != 0) {
+        console_write("ahci: ");
+        console_write(ahci_error());
+        console_write("\n");
+        return;
+    }
+    ahci_print();
+
+    if (ahci_read(0, 0, 1, sector) != 0) {
+        console_write("ahci: ");
+        console_write(ahci_error());
+        console_write("\n");
+        return;
+    }
+    console_write("ahci: read 512 bytes from port ");
+    console_dec(ahci_port_number(0));
+    console_write(" lba 0\n");
+}
+
 void kmain(void)
 {
     char brand[49];
@@ -228,9 +256,13 @@ void kmain(void)
     keyboard_start();
 
     console_write("\nPhase 3 complete.\n");
+
+    phase4();
+    console_write("Phase 4 complete.\n");
+
     keyboard_echo_loop();
 
-    console_write("Phase 3b complete. Halting.\n");
+    console_write("bmx: halting\n");
     interrupts_disable();
     for (;;) {
         __asm__ volatile("hlt");

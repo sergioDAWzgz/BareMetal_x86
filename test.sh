@@ -24,9 +24,26 @@ fi
 
 # Both artefacts come from one build, so a missing ESP must not leave a stale
 # disk image in place while the UEFI path quietly disappears.
-if [ ! -f build/baremetal.img ] || [ ! -f build/esp.img ]; then
+if [ ! -f build/baremetal.img ] || [ ! -f build/esp.img ] || [ ! -f build/data.img ]; then
   ./build.sh
 fi
+
+# A second disk on its own AHCI controller. The boot disk keeps its proven wiring,
+# and the kernel's SATA path is exercised identically on all three machines: the
+# volume is found by its label, never by controller or port position.
+DATA_DISK=(
+  -device ich9-ahci,id=sata
+  -drive file=build/data.img,format=raw,if=none,id=data0
+  -device ide-hd,drive=data0,bus=sata.0
+)
+
+# q35 has one AHCI controller and no IDE controller, so both disks live on it.
+# The boot index keeps the firmware on the boot disk: data.img carries a valid
+# FAT32 boot sector, and SeaBIOS would otherwise try to execute it.
+DATA_DISK_Q35=(
+  -drive file=build/data.img,format=raw,if=none,id=data0
+  -device ide-hd,drive=data0,bus=ide.1,bootindex=2
+)
 
 SCRATCH=$(mktemp -d)
 trap 'rm -rf "$SCRATCH"' EXIT
@@ -51,12 +68,16 @@ common_assertions() {
   grep -q 'acpi: rsdp at 0x[0-9a-f]* revision [0-9] oem "' "$log" || fail "$label: ACPI RSDP was not found"
   grep -q 'acpi: [1-9][0-9]* tables via [rx]sdt' "$log" || fail "$label: the ACPI table walk found nothing"
   grep -q 'acpi: madt local apic 0x[0-9a-f]* ioapics [1-9]' "$log" || fail "$label: the MADT declares no IO APIC"
+  grep -q 'ahci: abar 0x[0-9a-f]* ports [1-9][0-9]*' "$log" || fail "$label: the AHCI controller was not found"
+  grep -q 'ahci: port [0-9][0-9]* attached'     "$log" || fail "$label: no SATA port with a drive"
+  grep -q 'ahci: read 512 bytes from port [0-9][0-9]* lba 0' "$log" || fail "$label: no sector could be read from the SATA port"
   grep -q 'pit: *[0-9]* ticks observed'         "$log" || fail "$label: PIT ticks not observed"
   grep -q 'exc: resumed after breakpoint'       "$log" || fail "$label: breakpoint did not resume"
   grep -q 'exc: resumed after divide error'     "$log" || fail "$label: divide error did not resume"
   grep -q 'kbd: scancode translation self-test passed' "$log" || fail "$label: scancode translation is wrong"
   grep -q 'kbd: controller ready'               "$log" || fail "$label: 8042 controller was not initialised"
   grep -q 'Phase 3 complete'                    "$log" || fail "$label: phase 3 did not complete"
+  grep -q 'Phase 4 complete'                    "$log" || fail "$label: phase 4 did not complete"
 }
 
 # --- BIOS / legacy path ----------------------------------------------------
@@ -78,6 +99,7 @@ if [ "$HAVE_PYTHON" -eq 1 ]; then
   "$QEMU" \
     -machine pc -cpu qemu64 \
     -drive file=build/baremetal.img,format=raw,if=ide,index=0 \
+    "${DATA_DISK[@]}" \
     -m 256 -boot c -display none -serial "file:$LOG" -no-reboot \
     -monitor "unix:$MONITOR,server,nowait" \
     >/dev/null 2>&1 &
@@ -98,6 +120,7 @@ else
   timeout "$BOOT_SECONDS" "$QEMU" \
     -machine pc -cpu qemu64 \
     -drive file=build/baremetal.img,format=raw,if=ide,index=0 \
+    "${DATA_DISK[@]}" \
     -m 256 -boot c -display none -serial "file:$LOG" -no-reboot \
     >/dev/null 2>&1 || true
 fi
@@ -129,7 +152,8 @@ rm -f "$LOG"
 timeout "$BOOT_SECONDS" "$QEMU" \
   -machine q35 -cpu qemu64 -m 256 \
   -drive file=build/baremetal.img,format=raw,if=none,id=disk0 \
-  -device ide-hd,drive=disk0 \
+  -device ide-hd,drive=disk0,bootindex=1 \
+  "${DATA_DISK_Q35[@]}" \
   -boot c -display none -serial "file:$LOG" -no-reboot \
   >/dev/null 2>&1 || true
 
@@ -167,6 +191,7 @@ timeout "$UEFI_SECONDS" "$QEMU" \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file=build/OVMF_VARS.fd \
   -drive file=build/esp.img,format=raw,if=ide,index=0 \
+  "${DATA_DISK[@]}" \
   -display none -serial "file:$LOG" -no-reboot \
   >/dev/null 2>&1 || true
 

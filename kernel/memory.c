@@ -148,6 +148,38 @@ uintptr_t pmm_alloc_frame(void)
     return 0;
 }
 
+uintptr_t pmm_alloc_frames(uint64_t count)
+{
+    uint64_t start = 0;
+    uint64_t run = 0;
+    uint64_t frame;
+    uint64_t index;
+
+    if (count == 0 || count > PMM_FRAME_COUNT) {
+        return 0;
+    }
+
+    for (frame = 0; frame < PMM_FRAME_COUNT; frame++) {
+        if (!frame_is_free(frame)) {
+            run = 0;
+            continue;
+        }
+
+        if (run == 0) {
+            start = frame;
+        }
+        run++;
+
+        if (run == count) {
+            for (index = 0; index < count; index++) {
+                frame_mark_used(start + index);
+            }
+            return (uintptr_t)(start * FRAME_SIZE);
+        }
+    }
+    return 0;
+}
+
 void pmm_free_frame(uintptr_t frame)
 {
     uint64_t index = (uint64_t)frame / FRAME_SIZE;
