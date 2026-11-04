@@ -50,7 +50,9 @@ STRICT_MODE="true"
 # Timeout in seconds for AI provider response
 # Default: 300 (5 minutes)
 # Increase for large changesets or slow connections
-TIMEOUT="300"
+# A phase-sized change (10+ source files) makes the reviewer read the tree
+# before it answers, so 300s is not enough and the hook fails on a good review.
+TIMEOUT="900"
 
 # OpenCode provider: optional reasoning effort / variant
 # Examples: minimal, low, medium, high, max

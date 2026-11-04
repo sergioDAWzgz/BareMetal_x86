@@ -59,8 +59,10 @@ Bare-metal x86 kernel. No operating system, no libc, no runtime below this code.
 
 ## Review output
 
-- End with exactly one line, either `STATUS: PASSED` or `STATUS: FAILED`, as the
-  first characters of the line. No markdown emphasis, no bold, no bullet, no
-  trailing text: the pre-commit hook parses that line literally and rejects the
-  commit when it cannot find it.
-- Put the reasoning above that line, never after it.
+- Emit exactly one line, either `STATUS: PASSED` or `STATUS: FAILED`, as the very
+  first line of the answer, with the characters `STATUS:` starting the line. No
+  markdown emphasis, no bold, no bullet, no trailing text.
+- Never repeat that line anywhere else in the answer, not even inside the
+  reasoning or as a closing summary. The pre-commit hook counts the matching
+  lines and rejects the commit when it does not find exactly one.
+- Put the reasoning after that line, never before it.
