@@ -60,7 +60,10 @@ TIMEOUT="900"
 
 # OpenCode provider: optional agent profile
 # Keep this lightweight. Agent prompts can add significant token overhead.
-# OPENCODE_AGENT="gga-reviewer"
+# The hook scans only the first 30 lines of the provider's stdout for the
+# verdict, and a reviewing agent that runs tools pushes the verdict past that
+# window, so the reviewer profile must not use tools at all.
+OPENCODE_AGENT="gga-reviewer"
 
 # Base branch for --pr-mode (auto-detects main/master/develop if empty)
 # Default: auto-detect
