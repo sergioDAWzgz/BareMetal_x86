@@ -56,13 +56,15 @@ ahci: read <dec> bytes from port <dec> lba <dec>
 fat32: volume BMXDATA sectors <dec> clusters <dec>
 fat32: HELLO.TXT <dec> bytes
 fat32: content read from the fat32 volume
-fat32: USER.ELF <dec> bytes
 ramdisk: staged USER.ELF <dec> bytes at 0x<hex>
 elf: USER.ELF entry 0x<hex> segments <dec> pages <dec>
+vmm: supervisor entries 0 above the user window
+user: entering ring 3 at 0x<hex> with stack 0x<hex>
 sys: first syscall from cs 0x1b
 user: hello from ring 3
 user: running in ring 3
 user: exited with status 0
+user: returned to ring 0
 Phase 4 complete
 ```
 
@@ -80,15 +82,16 @@ Phase 4 complete
   `kernel/ramdisk.h`, `kernel/vmm.c`, `kernel/vmm.h`, `kernel/elf.c`,
   `kernel/elf.h`, plus the loader reading the staged file into user pages and
   reading one byte back through the new mapping. Covers S2 (ramdisk), S3 (loader
-  half), S5. Route: inline.
+  half), S5. Route: inline. Done in `c0b520b`.
 - **T4** - ring 3 and syscalls. User selectors in `kernel/gdt.c`, `TSS.rsp0` and
   its kernel stack, the `int 0x80` gate in `kernel/idt.c`, `kernel/usermode.asm`,
   `kernel/syscall.c`, `user/` (crt0, libc, program, linker script) wired into
   `build.sh`, and the gate assertions. One unit because a ring-3 entry that never
   returns through a syscall proves nothing: the loader, the transition and the
-  syscall contract are one behaviour. Covers S3, S4, S5. Route: inline.
+  syscall contract are one behaviour. Covers S3, S4, S5. Route: inline. Done in
+  `7744629`.
 - **T5** - documentation and final gate. `README.md`, `docs/roadmap.md`. Covers
-  S6, S5. Route: inline.
+  S6, S5. Route: inline. Done in the documentation commit that closes the phase.
 
 ## Log
 
@@ -150,3 +153,37 @@ The gate assertion was what let the first defect through, so it now checks
 content instead of success: `fat32: HELLO.TXT 27 bytes` and
 `fat32: content read from the fat32 volume` cannot be satisfied by zeros. A
 successful AHCI read is therefore proven by data, not by a return code.
+
+### L4 (evidence, 2026-11-04)
+
+The TSS descriptor is 16 bytes. Moving it from slot 3 to slot 5 to make room for
+the user selectors left it spanning slot 5 and a slot that did not exist, so the
+`base_upper` write landed in whatever followed the array and `ltr` loaded a
+descriptor with a truncated base. The machine hung immediately after the CPU
+brand line, before the "GDT and TSS installed" message. `GDT_ENTRIES` is 7 now,
+which is the arithmetic the descriptor always implied.
+
+The return path was the second defect and a quieter one. `int 0x80` is an
+interrupt gate, so the CPU clears IF on entry; returning with `ret` instead of
+`iretq` left IF cleared for the rest of the boot. Everything after ring 3 still
+worked, which is why the miss looked like a keyboard bug: the echo loop started,
+printed its banner, and never received IRQ1, so the injected keystrokes sat in
+the 8042 output buffer and the gate failed with no visible cause. `usermode_run`
+now saves RFLAGS and `usermode_resume` restores them with `popfq` immediately
+before the `ret`, so the kernel resumes in exactly the interrupt state the caller
+had.
+
+The gate assertion for the isolated ring-3 write was proven the same way as the
+supervisor audit: a temporary raw `int 0x80` with `rdi` set to a kernel window
+address made the kernel print `sys: write outside the user window rejected` and
+the program continue, so the range check is what stops the read, not a lucky
+fault. Reverted afterwards.
+
+Keystroke timing. The injector slept a fixed five seconds before typing, which
+was already marginal and phase 4 pushed the boot past it. It now waits for
+`kbd: echo loop` in the serial log, which is the state the keystrokes actually
+need, so the gate no longer depends on how long the storage path takes.
+
+User program checks. The program verifies the loader zero filled its `.bss` and
+reads its own CS to confirm CPL 3, so the "ring 3" claim is made by the program
+rather than only reported by the kernel.

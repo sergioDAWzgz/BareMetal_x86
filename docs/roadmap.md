@@ -70,14 +70,27 @@ line the kernel echoes back. ACPI is proven three ways: the BIOS scan, the UEFI
 configuration table, and a q35 boot that publishes MCFG so the ECAM parse is
 exercised instead of skipped.
 
-## Phase 4 - storage and userspace
+## Phase 4 - storage and userspace (done)
 
-- [ ] AHCI driver, read sectors from the SATA port
-- [ ] read-only FAT32 (or a small own filesystem) and a ramdisk
-- [ ] ELF loader and a ring-3 process with syscalls
-- [ ] minimal libc
+- [x] AHCI driver, read sectors from the SATA port
+- [x] read-only FAT32 and a ramdisk
+- [x] ELF loader and a ring-3 process with syscalls
+- [x] minimal libc
 
 Gate: a user program loaded from disk prints through a syscall.
+
+The data volume is built by `build.sh` as `build/data.img` and the kernel picks it
+by its `BMXDATA` label, so the same gate runs on the `pc` machine and on q35, where
+the boot disk and the data disk share one controller. The gate asserts the mounted
+geometry, the file content read back, the staged image, the loaded entry point, a
+syscall observed with `cs = 0x1b`, the program's own output and its exit status, and
+that no mapping outside the user window is reachable from ring 3.
+
+Two defects are recorded in `odd/tasks/phase4-storage-userspace.md` and worth
+keeping in mind for phase 5: an AHCI command header that put the PRDT length in the
+wrong dword let a read "succeed" while moving no bytes, and returning from the
+syscall with `ret` instead of restoring the flags left the kernel with interrupts
+disabled after the first ring-3 process.
 
 ## Phase 5 - video, the decision point
 
