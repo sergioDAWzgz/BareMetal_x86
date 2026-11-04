@@ -83,7 +83,15 @@ ISR_NOERR 45
 ISR_NOERR 46
 ISR_NOERR 47
 
-extern exception_dispatch
+; The syscall gate. It shares isr_common with every other vector, so the routing
+; decision lives in one place: interrupt_dispatch looks at the vector pushed here.
+global isr_syscall
+isr_syscall:
+    push qword 0
+    push qword 0x80
+    jmp isr_common
+
+extern interrupt_dispatch
 
 isr_common:
     push rax
@@ -102,9 +110,11 @@ isr_common:
     push r14
     push r15
 
+    ; The block itself is what the C struct describes, so the base pointer is
+    ; the frame's address; adding the pushed register count here would make the
+    ; struct layout and the C field offsets disagree.
     mov rdi, rsp
-    add rdi, 15 * 8
-    call exception_dispatch
+    call interrupt_dispatch
 
     pop r15
     pop r14

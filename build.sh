@@ -46,7 +46,9 @@ done
 step "assemble kernel entry and interrupt stubs"
 "$NASM" -f elf64 kernel/entry.asm -o "$BUILD_DIR/kernel/entry.o"
 "$NASM" -f elf64 kernel/isr.asm -o "$BUILD_DIR/kernel/isr.o"
-objects=("$BUILD_DIR/kernel/entry.o" "$BUILD_DIR/kernel/isr.o" "${objects[@]}")
+"$NASM" -f elf64 kernel/usermode.asm -o "$BUILD_DIR/kernel/usermode.o"
+objects=("$BUILD_DIR/kernel/entry.o" "$BUILD_DIR/kernel/isr.o" \
+         "$BUILD_DIR/kernel/usermode.o" "${objects[@]}")
 
 step "link kernel"
 "$LD" -m elf_x86_64 -T kernel/kernel.ld -o "$BUILD_DIR/kernel.elf" "${objects[@]}"
@@ -124,11 +126,16 @@ USER_CFLAGS=(
   -ffreestanding -fno-builtin -fno-pie -fno-stack-protector
   -fno-asynchronous-unwind-tables -fno-unwind-tables
   -mno-sse -mno-sse2 -mno-mmx -msoft-float
+  # The syscall numbers are shared, so the user library sees the header the
+  # kernel decodes the register block with instead of its own copy.
+  -Ikernel
 )
 "$NASM" -f elf64 user/crt0.asm -o "$BUILD_DIR/crt0.o"
+"$CC" "${USER_CFLAGS[@]}" -c user/libc.c -o "$BUILD_DIR/user-libc.o"
 "$CC" "${USER_CFLAGS[@]}" -c user/main.c -o "$BUILD_DIR/user-main.o"
 "$LD" -m elf_x86_64 -nostdlib -T user/link.ld \
-  -o "$BUILD_DIR/USER.ELF" "$BUILD_DIR/crt0.o" "$BUILD_DIR/user-main.o"
+  -o "$BUILD_DIR/USER.ELF" "$BUILD_DIR/crt0.o" "$BUILD_DIR/user-libc.o" \
+  "$BUILD_DIR/user-main.o"
 
 # The data volume the kernel mounts in phase 4. It is a real FAT32 filesystem
 # with a known label, so the kernel's read-only driver is checked against an

@@ -82,6 +82,18 @@ common_assertions() {
     || fail "$label: the user program was not loaded into user pages"
   grep -q 'vmm: supervisor entries 0 above the user window' "$log" \
     || fail "$label: a mapping outside the user window is reachable from ring 3"
+  grep -q 'user: entering ring 3 at 0x[0-9a-f]* with stack 0x[0-9a-f]*' "$log" \
+    || fail "$label: the process was never started in user space"
+  grep -q 'sys: first syscall from cs 0x1b'     "$log" \
+    || fail "$label: the syscall gate was not entered from ring 3"
+  grep -q 'user: hello from ring 3'             "$log" \
+    || fail "$label: the user program could not write through a syscall"
+  grep -q 'user: running in ring 3'             "$log" \
+    || fail "$label: the user program did not observe CPL 3"
+  grep -q 'user: exited with status 0'          "$log" \
+    || fail "$label: the user program did not exit cleanly"
+  grep -q 'user: returned to ring 0'            "$log" \
+    || fail "$label: the kernel did not resume after the user process"
   grep -q 'pit: *[0-9]* ticks observed'         "$log" || fail "$label: PIT ticks not observed"
   grep -q 'exc: resumed after breakpoint'       "$log" || fail "$label: breakpoint did not resume"
   grep -q 'exc: resumed after divide error'     "$log" || fail "$label: divide error did not resume"
@@ -116,7 +128,22 @@ if [ "$HAVE_PYTHON" -eq 1 ]; then
     >/dev/null 2>&1 &
   QEMU_PID=$!
 
-  if ! python3 scripts/send-keys.py "$MONITOR" h e l l o ret --quit >/dev/null 2>&1; then
+  # Wait for the state the keystrokes need instead of guessing a boot time: a
+  # key delivered before the kernel reads the 8042 output buffer is dropped, so a
+  # fixed sleep is a flaky gate as the boot path grows.
+  for _ in $(seq 1 80); do
+    grep -q 'kbd: echo loop' "$LOG" 2>/dev/null && break
+    kill -0 "$QEMU_PID" 2>/dev/null || break
+    sleep 0.25
+  done
+  if ! grep -q 'kbd: echo loop' "$LOG" 2>/dev/null; then
+    kill "$QEMU_PID" 2>/dev/null || true
+    wait "$QEMU_PID" 2>/dev/null || true
+    fail 'bios: the kernel never reached its keyboard input loop'
+  fi
+
+  if ! python3 scripts/send-keys.py "$MONITOR" --settle 0 \
+       h e l l o ret --quit >/dev/null 2>&1; then
     fail 'bios: the keystroke injector never reached the QEMU monitor'
   fi
   KEYS_INJECTED=1

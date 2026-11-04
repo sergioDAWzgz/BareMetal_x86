@@ -1,6 +1,8 @@
 #include "gdt.h"
 
-#define GDT_ENTRIES 6
+/* Null, kernel code, kernel data, user code, user data, then the two slots a
+   64-bit TSS descriptor occupies. */
+#define GDT_ENTRIES 7
 
 typedef struct __attribute__((packed)) {
     uint16_t limit_low;
@@ -58,7 +60,7 @@ void gdt_init(void)
     uint16_t selector;
     uint64_t tss_base = (uint64_t)(uintptr_t)&tss;
     uint32_t tss_limit = (uint32_t)(sizeof(tss) - 1);
-    tss_descriptor_t *tss_entry = (tss_descriptor_t *)&gdt[3];
+    tss_descriptor_t *tss_entry = (tss_descriptor_t *)&gdt[5];
     unsigned int i;
 
     for (i = 0; i < sizeof(gdt); i++) {
@@ -70,6 +72,10 @@ void gdt_init(void)
 
     gdt_set(&gdt[1], 0x9A, 0xAF);   /* 64-bit code, ring 0 */
     gdt_set(&gdt[2], 0x92, 0xCF);   /* flat data, ring 0 */
+    /* DPL 3 is the whole point of these two: without it the iretq into ring 3
+       would fault before it executed a single user instruction. */
+    gdt_set(&gdt[3], 0xFA, 0xAF);   /* 64-bit code, ring 3 */
+    gdt_set(&gdt[4], 0xF2, 0xCF);   /* flat data, ring 3 */
 
     tss_entry->limit_low = (uint16_t)(tss_limit & 0xFFFF);
     tss_entry->base_low = (uint16_t)(tss_base & 0xFFFF);
@@ -96,4 +102,9 @@ void gdt_init(void)
 
     selector = GDT_SELECTOR_TSS;
     __asm__ volatile("ltr %0" : : "r"(selector));
+}
+
+void gdt_set_kernel_stack(uint64_t top)
+{
+    tss.rsp0 = top;
 }

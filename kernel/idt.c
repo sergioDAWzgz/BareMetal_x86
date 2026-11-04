@@ -3,9 +3,13 @@
 #include "gdt.h"
 #include "keyboard.h"
 #include "pic.h"
+#include "syscall.h"
 
 #define IDT_FLAG_PRESENT 0x80
 #define IDT_FLAG_INTERRUPT_GATE 0x0E
+/* Two bits of the type/attributes byte; ring 3 may raise the vector only when
+   the gate itself is DPL 3. */
+#define IDT_FLAG_DPL_SHIFT 5
 #define IDT_STUB_COUNT 48
 #define IRQ0_VECTOR 32
 #define IRQ1_VECTOR 33
@@ -26,6 +30,7 @@ typedef struct __attribute__((packed)) {
 } idt_pointer_t;
 
 extern void (*const isr_stub_table[])(void);
+extern void isr_syscall(void);
 extern void divide_error_probe_resume(void);
 
 static idt_entry_t idt[IDT_VECTOR_COUNT];
@@ -46,14 +51,16 @@ static const char *const exception_names[32] = {
     "reserved",                "reserved"
 };
 
-static void idt_set_gate(unsigned int vector, void (*handler)(void))
+static void idt_set_gate(unsigned int vector, void (*handler)(void),
+                         unsigned int dpl)
 {
     uint64_t address = (uint64_t)(uintptr_t)handler;
 
     idt[vector].offset_low = (uint16_t)(address & 0xFFFF);
     idt[vector].selector = GDT_SELECTOR_CODE;
     idt[vector].ist = 0;
-    idt[vector].type_attributes = IDT_FLAG_PRESENT | IDT_FLAG_INTERRUPT_GATE;
+    idt[vector].type_attributes =
+        IDT_FLAG_PRESENT | IDT_FLAG_INTERRUPT_GATE | (dpl << IDT_FLAG_DPL_SHIFT);
     idt[vector].offset_mid = (uint16_t)((address >> 16) & 0xFFFF);
     idt[vector].offset_high = (uint32_t)(address >> 32);
     idt[vector].reserved = 0;
@@ -69,12 +76,26 @@ void idt_init(void)
     }
 
     for (vector = 0; vector < IDT_STUB_COUNT; vector++) {
-        idt_set_gate(vector, isr_stub_table[vector]);
+        idt_set_gate(vector, isr_stub_table[vector], 0);
     }
+
+    /* The one gate ring 3 is allowed to raise. It stays an interrupt gate, so
+       the handler runs with interrupts disabled and cannot be interleaved with
+       an IRQ that would touch the same console. */
+    idt_set_gate(IDT_SYSCALL_VECTOR, isr_syscall, 3);
 
     idt_pointer.limit = (uint16_t)(sizeof(idt) - 1);
     idt_pointer.base = (uint64_t)(uintptr_t)&idt[0];
     __asm__ volatile("lidt %0" : : "m"(idt_pointer));
+}
+
+void interrupt_dispatch(registers_t *registers)
+{
+    if (registers->vector == IDT_SYSCALL_VECTOR) {
+        syscall_dispatch(registers);
+        return;
+    }
+    exception_dispatch(registers);
 }
 
 void exception_expect_fault(void)
@@ -82,7 +103,7 @@ void exception_expect_fault(void)
     expect_fault = 1;
 }
 
-void exception_dispatch(interrupt_frame_t *frame)
+void exception_dispatch(registers_t *frame)
 {
     if (frame->vector == IRQ0_VECTOR) {
         timer_handle();

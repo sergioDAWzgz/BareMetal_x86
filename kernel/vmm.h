@@ -16,6 +16,12 @@
    tables a bounded quantity instead of allocating one per 4 GiB of address. */
 #define USER_LIMIT 0x0000008010000000ULL
 
+/* The stack sits at the top of the window and grows down, so its first page is
+   the last page the window can hold. Sixty-four KiB is deep enough for the libc
+   calls a user program makes and keeps the mapping a fixed, auditable size. */
+#define USER_STACK_SIZE 0x10000ULL
+#define USER_STACK_BASE (USER_LIMIT - USER_STACK_SIZE)
+
 /* Reads the page map the loader built out of CR3 and installs an empty, all-user
    subtree at PML4[1]. Returns 0 on success; every user mapping call needs it to
    have succeeded first. */

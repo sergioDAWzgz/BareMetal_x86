@@ -11,16 +11,23 @@
 #include "idt.h"
 #include "io.h"
 #include "keyboard.h"
+#include "lib.h"
 #include "memory.h"
 #include "pci.h"
 #include "pic.h"
 #include "ramdisk.h"
+#include "usermode.h"
 #include "vmm.h"
 
 #define TIMER_HZ 100
 #define TICKS_TO_OBSERVE 10
 #define BARS_VISIBLE_TICKS TIMER_HZ
 #define KBD_LINE_MAX 96
+/* The stack the CPU switches to on every interrupt taken from ring 3. Separate
+   from the boot stack so a user process can never walk into kernel frames, and
+   from the user stack so a deep user call chain cannot reach kernel data. */
+#define KERNEL_STACK_FRAMES 4
+#define KERNEL_STACK_SIZE (KERNEL_STACK_FRAMES * 4096ULL)
 
 extern void divide_error_probe(void);
 
@@ -182,6 +189,7 @@ static void phase4(void)
     fat32_file_t file;
     ramdisk_file_t staged;
     elf_image_t image;
+    uintptr_t kernel_stack;
     int32_t size;
 
     if (ahci_init() != 0) {
@@ -272,6 +280,38 @@ static void phase4(void)
     console_write(" pages ");
     console_dec(image.pages);
     console_write("\n");
+
+    /* Every interrupt taken from ring 3 lands on this region, so it has to exist
+       and be registered before the drop. It is not user mapped: the CPU reaches
+       it through the TSS, and the program has no address for it. */
+    kernel_stack = pmm_alloc_frames(KERNEL_STACK_FRAMES);
+    if (kernel_stack == 0) {
+        console_write("user: no contiguous run for the kernel stack\n");
+        return;
+    }
+    memset(PHYS_TO_VIRT(kernel_stack), 0, KERNEL_STACK_SIZE);
+    gdt_set_kernel_stack((uint64_t)(uintptr_t)PHYS_TO_VIRT(kernel_stack) +
+                         KERNEL_STACK_SIZE);
+
+    /* The stack is ordinary user memory with nothing in it: the program writes
+       to it as soon as it calls a function, which is the first thing it does. */
+    if (vmm_map_user(USER_STACK_BASE, USER_STACK_SIZE, 0, 0) < 0) {
+        console_write("user: ");
+        console_write(vmm_error());
+        console_write("\n");
+        return;
+    }
+
+    console_write("user: entering ring 3 at ");
+    console_hex64(image.entry);
+    console_write(" with stack ");
+    console_hex64(USER_STACK_BASE + USER_STACK_SIZE);
+    console_write("\n");
+
+    usermode_run(image.entry, USER_STACK_BASE + USER_STACK_SIZE,
+                 GDT_SELECTOR_USER_CODE_RING3, GDT_SELECTOR_USER_DATA_RING3);
+
+    console_write("user: returned to ring 0\n");
 }
 
 void kmain(void)
@@ -298,7 +338,7 @@ void kmain(void)
     console_write("gdt:       kernel GDT and TSS installed\n");
 
     idt_init();
-    console_write("idt:       48 vectors installed\n");
+    console_write("idt:       48 vectors and the syscall gate installed\n");
 
     pic_init();
     pit_init(TIMER_HZ);

@@ -1,18 +1,47 @@
 /* The phase 4 user program.
 
-   This step only proves the loader places it in memory. The ring-3 transition
-   and the syscall interface arrive with the next step, and they are what make
-   the message reach the console. */
+   It runs in ring 3 with no kernel access beyond the int 0x80 gate, so every
+   message it prints travels through the write syscall and the status the kernel
+   reports is the value main returns. */
 
-static const char message[] __attribute__((used)) = "user: hello from ring 3\n";
+#include "libc.h"
 
-/* Volatile so this store survives optimisation: it is what gives the image a
-   writable segment with no file bytes, the case the loader has to zero fill. */
-static volatile unsigned int writable;
+/* Lives in .bss: the image carries no bytes for it, so a non-zero value here
+   means the loader did not zero fill the page it mapped. */
+static volatile unsigned int counter;
+
+static unsigned int current_ring(void)
+{
+    uint16_t selector;
+
+    __asm__ volatile("mov %%cs, %0" : "=r"(selector));
+
+    return (unsigned int)(selector & 3);
+}
+
+static void say(const char *text)
+{
+    counter++;
+    puts(text);
+}
 
 int main(void)
 {
-    writable = (unsigned int)message[0];
+    if (counter != 0) {
+        puts("user: the writable segment was not zeroed");
+        return 1;
+    }
+
+    say("user: hello from ring 3");
+
+    /* The program reads its own privilege level instead of trusting the kernel to
+       report it: this message only appears if the CPU executed this code with
+       CPL 3. */
+    if (current_ring() == 3) {
+        say("user: running in ring 3");
+    } else {
+        puts("user: not running in ring 3");
+    }
 
     return 0;
 }
