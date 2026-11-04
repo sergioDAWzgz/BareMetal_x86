@@ -18,11 +18,11 @@
 #include <efi.h>
 #include <efilib.h>
 
-#define COM1_PORT 0x3F8
+/* The boot info block is a published contract between the two loaders and the
+   kernel, so there is exactly one definition of it: the kernel header. */
+#include "bootinfo.h"
 
-#define BOOT_INFO_ADDR 0x0C00
-#define BOOT_INFO_MAGIC 0x424D5833u /* 'BMX3' */
-#define BOOT_INFO_SOURCE_UEFI 2u
+#define COM1_PORT 0x3F8
 
 #define E820_COUNT_ADDR 0x0504
 #define E820_BUF_ADDR 0x0508
@@ -50,6 +50,21 @@
    that phase runs on a stack of its own, so every RSP-relative slot of
    efi_main's frame is gone by then. */
 static volatile UINT64 g_kernel_phys;
+static volatile UINT64 g_rsdp;
+/* Written and read after the stack switch, so they cannot be locals of
+   efi_main: the frame they would live in is gone by then. */
+static UINT16 g_gdt_limit;
+static UINT64 g_kernel_byte;
+
+/* ACPI 2.0 and 1.0 configuration table identifiers. */
+static const EFI_GUID acpi_20_table_guid = {
+    0x8868e871, 0xe4f1, 0x11d3,
+    { 0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81 }
+};
+static const EFI_GUID acpi_10_table_guid = {
+    0xeb9d2d30, 0x2d88, 0x11d3,
+    { 0x9a, 0x16, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d }
+};
 
 static inline void outb(UINT16 port, UINT8 value)
 {
@@ -133,28 +148,43 @@ static void halt_forever(void)
 /* ------------------------------------------------------------------------- */
 
 typedef struct __attribute__((packed)) {
-    UINT32 magic;
-    UINT32 source;
-    UINT64 framebuffer;
-    UINT32 width;
-    UINT32 height;
-    UINT32 pitch;
-    UINT32 bpp;
-    UINT8 red_size;
-    UINT8 red_pos;
-    UINT8 green_size;
-    UINT8 green_pos;
-    UINT8 blue_size;
-    UINT8 blue_pos;
-    UINT16 reserved;
-} boot_info_t;
-
-typedef struct __attribute__((packed)) {
     UINT64 base;
     UINT64 length;
     UINT32 type;
     UINT32 acpi;
 } e820_entry_t;
+
+static int guid_equal(const EFI_GUID *left, const EFI_GUID *right)
+{
+    const UINT8 *a = (const UINT8 *)left;
+    const UINT8 *b = (const UINT8 *)right;
+    UINTN index;
+
+    for (index = 0; index < sizeof(EFI_GUID); index++) {
+        if (a[index] != b[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* A firmware does not leave an RSDP in the legacy 0xE0000 segment the way a
+   BIOS does; it only publishes the root pointer through its configuration
+   table, so the kernel cannot find ACPI by scanning memory on this path. */
+static void find_acpi_rsdp(void)
+{
+    UINTN index;
+
+    for (index = 0; index < ST->NumberOfTableEntries; index++) {
+        EFI_CONFIGURATION_TABLE *entry = &ST->ConfigurationTable[index];
+
+        if (guid_equal(&entry->VendorGuid, &acpi_20_table_guid)
+            || guid_equal(&entry->VendorGuid, &acpi_10_table_guid)) {
+            g_rsdp = (UINT64)(UINTN)entry->VendorTable;
+            return;
+        }
+    }
+}
 
 static UINT8 mask_size(UINT32 mask)
 {
@@ -197,6 +227,7 @@ static void bootinfo_publish(const EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *info,
     block->green_size = 8;
     block->blue_size = 8;
     block->reserved = 0;
+    block->rsdp = g_rsdp;
 
     switch (info->PixelFormat) {
     case PixelRedGreenBlueReserved8BitPerColor:
@@ -553,8 +584,6 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
     EFI_STATUS status;
     UINT64 kernel_phys;
     UINT32 e820_entries;
-    UINT16 gdt_limit;
-    UINT64 kernel_byte;
 
     InitializeLib(image, systab);
 
@@ -575,7 +604,11 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
         return EFI_UNSUPPORTED;
     }
 
+    find_acpi_rsdp();
     bootinfo_publish(mode_info, (UINT64)gop->Mode->FrameBufferBase);
+    serial_puts("uefi: rsdp 0x");
+    serial_hex(g_rsdp, 16);
+    serial_puts("\r\n");
     serial_puts("uefi: gop ");
     serial_dec(mode_info->HorizontalResolution);
     serial_puts("x");
@@ -644,17 +677,20 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
                      : "rbp", "memory");
 
     build_page_tables(PAGE_TABLE_ADDR, g_kernel_phys);
-    gdt_limit = build_gdt(GDT_ADDR);
+    g_gdt_limit = build_gdt(GDT_ADDR);
 
+    /* CR3: the tables above are built, and this code, the GDT and the stack all
+       live in low memory that the new tables map identity, so the very next
+       instruction fetch still resolves after the switch. */
     __asm__ volatile("movq %0, %%cr3" : : "r"(PAGE_TABLE_ADDR) : "memory");
     serial_puts("uefi: cr3 switched\r\n");
 
-    __asm__ volatile("movzbq (%1), %0" : "=r"(kernel_byte) : "r"(KERNEL_VIRT) : "memory");
+    __asm__ volatile("movzbq (%1), %0" : "=r"(g_kernel_byte) : "r"(KERNEL_VIRT) : "memory");
     serial_puts("uefi: kernel byte 0x");
-    serial_hex(kernel_byte, 2);
+    serial_hex(g_kernel_byte, 2);
     serial_puts("\r\n");
 
     serial_puts("uefi: jumping to the kernel\r\n");
 
-    enter_kernel(GDT_ADDR, gdt_limit, KERNEL_VIRT);
+    enter_kernel(GDT_ADDR, g_gdt_limit, KERNEL_VIRT);
 }

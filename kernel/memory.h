@@ -8,6 +8,9 @@
    linked in a separate 2 MiB window at KERNEL_BASE. */
 #define PHYS_BASE 0xFFFF800000000000ULL
 #define PHYS_TO_VIRT(address) ((void *)(uintptr_t)((uint64_t)(address) + PHYS_BASE))
+/* The inverse of PHYS_TO_VIRT, for the rare case where a kernel pointer into the
+   direct map has to be reported as the physical address firmware gave us. */
+#define VIRT_TO_PHYS(address) ((uint64_t)(uintptr_t)(address) - PHYS_BASE)
 
 typedef struct __attribute__((packed)) {
     uint64_t base;

@@ -25,6 +25,7 @@ typedef struct __attribute__((packed)) {
     uint8_t blue_size;
     uint8_t blue_pos;
     uint16_t reserved;
+    uint64_t rsdp;       /* physical RSDP address, or 0 when the loader has none */
 } boot_info_t;
 
 const boot_info_t *bootinfo_get(void);

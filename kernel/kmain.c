@@ -1,3 +1,4 @@
+#include "acpi.h"
 #include "bootinfo.h"
 #include "console.h"
 #include "cpu.h"
@@ -207,6 +208,12 @@ void kmain(void)
 
     bootinfo_print();
     video_demo();
+
+    if (acpi_init() != 0) {
+        console_write("acpi: no rsdp found\n");
+    } else {
+        acpi_print();
+    }
 
     pci_enumerate();
     pci_print();

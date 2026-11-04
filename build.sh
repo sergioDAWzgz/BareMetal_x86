@@ -86,7 +86,7 @@ if [ -f /usr/lib/crt0-efi-x86_64.o ] && [ -d /usr/include/efi ]; then
     -fpic -fshort-wchar -fno-stack-protector -mno-red-zone
     -mno-sse -mno-mmx -fno-asynchronous-unwind-tables
     -maccumulate-outgoing-args -DEFI_FUNCTION_WRAPPER
-    -I/usr/include/efi -I/usr/include/efi/x86_64
+    -I/usr/include/efi -I/usr/include/efi/x86_64 -Ikernel
   )
   "$CC" "${UEFI_CFLAGS[@]}" -c boot/uefi/loader.c -o "$BUILD_DIR/uefi/loader.o"
   "$LD" -shared -Bsymbolic -nostdlib \

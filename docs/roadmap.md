@@ -42,7 +42,7 @@ reachable, 3b is input and firmware tables.
 ### 3a - framebuffer and PCI (done)
 
 - [x] boot info block published by both loaders at `0x0C00` (magic `BMX3`,
-      source, framebuffer address, mode, pitch, channel masks)
+      source, framebuffer address, mode, pitch, channel masks, RSDP address)
 - [x] VBE mode selection in stage 2 by scanning the controller's mode list for
       1024x768x32 with a linear framebuffer (`0x118` is 24 bpp, not 32)
 - [x] GOP mode selection in the UEFI loader, with the pixel format translated to
@@ -58,13 +58,17 @@ reachable, 3b is input and firmware tables.
       mirrored onto it, cursor, wrapping and scrolling
 - [x] PS/2 keyboard: 8042 init, scancode set 1 decoding with shift, caps lock and
       control, an IRQ1-driven character queue and a line echo loop
-- [ ] ACPI table discovery (RSDP, MADT, MCFG)
+- [x] ACPI table discovery: RSDP from the EBDA/ROM scan on BIOS and from the UEFI
+      configuration table, then the XSDT/RSDT walk, MADT (local APIC, IO APICs,
+      interrupt source overrides) and MCFG (PCIe ECAM window)
 - [ ] SMBus/`i2c` for the ALC888S codec, if it turns out to be needed in 5b
 
 Gate: the kernel lists the JNF3A's RTL8111H and ALC888S and draws on the real
 display. PCI enumeration, drawing and typing are already proven in QEMU on both
 paths; the gate injects real keystrokes through the emulated 8042 and asserts the
-line the kernel echoes back.
+line the kernel echoes back. ACPI is proven three ways: the BIOS scan, the UEFI
+configuration table, and a q35 boot that publishes MCFG so the ECAM parse is
+exercised instead of skipped.
 
 ## Phase 4 - storage and userspace
 

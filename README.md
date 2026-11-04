@@ -5,10 +5,10 @@ Celeron N2807 / N2930) 3.5" single board computer: own bootloader, own kernel, a
 eventually video playback on real hardware.
 
 Current state: **phase 3b** - 64-bit long mode, higher-half kernel, E820 memory map,
-frame allocator, PIC/PIT, exception diagnostics, PCI enumeration, a 1024x768x32
-framebuffer driven through VBE (BIOS) or GOP (UEFI) with an 8x8 text console on it,
-and a PS/2 keyboard with a line echo loop. Both boot paths run the same kernel.
-See `docs/roadmap.md`.
+frame allocator, PIC/PIT, exception diagnostics, PCI enumeration, ACPI table
+discovery (RSDP, MADT, MCFG), a 1024x768x32 framebuffer driven through VBE (BIOS)
+or GOP (UEFI) with an 8x8 text console on it, and a PS/2 keyboard with a line echo
+loop. Both boot paths run the same kernel. See `docs/roadmap.md`.
 
 ## Requirements
 
@@ -62,7 +62,8 @@ There are two boot paths to the same kernel binary.
    its own GDT with a TSS and a 48-vector IDT, remaps the PIC, starts the PIT,
    enables interrupts, prints the memory map, initialises the frame allocator,
    probes the framebuffer, switches to an 8x8 text console drawn straight onto it,
-   enumerates PCI, then initialises the 8042 keyboard and echoes typed lines.
+   walks the ACPI tables, enumerates PCI, then initialises the 8042 keyboard and
+   echoes typed lines.
 
 **UEFI** (`boot/uefi/loader.c`, `BOOTX64.EFI` on an ESP):
 
@@ -88,6 +89,23 @@ Disk layout of `build/baremetal.img`:
 
 `build/esp.img` is a 16 MiB FAT image holding `\EFI\BOOT\BOOTX64.EFI` and
 `\EFI\BOOT\KERNEL.BIN`.
+
+### How ACPI is found
+
+The two firmware families do not publish the root pointer the same way, so the
+kernel takes both routes:
+
+- **BIOS**: the kernel scans the first KiB of the EBDA and the `0xE0000`-`0xFFFFF`
+  ROM area for the `RSD PTR ` signature, and validates the checksum before using
+  anything it finds.
+- **UEFI**: there is no RSDP anywhere in the legacy segment, so the loader reads
+  it from the ACPI configuration table (GUID `8868e871-e4f1-11d3-bc22-0080c73c8881`)
+  and publishes the physical address in the boot info block. The kernel revalidates
+  it there, because the boot info block is data and not a trusted pointer.
+
+Every table is checksum-checked and dropped if it fails, table addresses outside
+the 4 GiB direct map are ignored, and the MADT is walked by its own entry lengths
+rather than a fixed stride.
 
 ## Writing to a USB stick
 

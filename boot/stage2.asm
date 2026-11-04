@@ -54,6 +54,8 @@ start:
     mov ds, ax
     mov es, ax
     mov ss, ax
+    ; The stack grows down from the load address, so it sits below this code and
+    ; does not overwrite the copy the BIOS gave us at 0x7C00.
     mov sp, 0x7C00
     sti
 
@@ -92,6 +94,8 @@ start:
     cli
     lgdt [gdt_descriptor]
     mov eax, cr0
+    ; CR0.PE: the next far jump needs protected mode already enabled, and the GDT
+    ; loaded above is the only descriptor table in effect from here on.
     or  eax, 1
     mov cr0, eax
     jmp 0x18:pm_entry
@@ -170,14 +174,22 @@ setup_video_mode:
     mov dword [BOOT_INFO_ADDR + 0x1C], 0
     mov dword [BOOT_INFO_ADDR + 0x20], 0
     mov dword [BOOT_INFO_ADDR + 0x24], 0
+    mov dword [BOOT_INFO_ADDR + 0x28], 0
+    mov dword [BOOT_INFO_ADDR + 0x2C], 0
 
     ; --- ask the controller for its mode list ---
-    mov dword [VBE_CTRL_ADDR], 0x41534556   ; 'VESA'
+    ; 'VBE2' requests the 2.0 information block; with the 1.x 'VESA' signature
+    ; the dword at offset 0x28 is not defined as PhysBasePtr.
+    mov dword [VBE_CTRL_ADDR], 0x32454256   ; 'VBE2'
     mov ax, 0x4F00
     mov di, VBE_CTRL_ADDR
     int 0x10
     cmp ax, 0x004F
     jne .no_vbe
+
+    ; PhysBasePtr is only defined by the 2.0 layout, so refuse an older block.
+    cmp word [VBE_CTRL_ADDR + 0x04], 0x0200
+    jb  .no_vbe
 
     ; Flatten the far mode list into low memory so a BIOS that clobbers the
     ; segment registers cannot break the scan.
@@ -202,6 +214,9 @@ setup_video_mode:
     mov word [vbe_index], 0
 .scan:
     mov bx, [vbe_index]
+    cmp bx, VBE_MAX_MODES - 1       ; a list without its terminator must not run on
+    jae .no_vbe
+    add bx, bx                      ; the flattened list holds words, so index * 2
     mov cx, [VBE_MODES_ADDR + bx]
     cmp cx, 0xFFFF
     je  .no_vbe
@@ -382,6 +397,8 @@ pm_entry:
     mov fs, ax
     mov gs, ax
     mov ss, ax
+    ; A fresh stack in low memory: the real-mode stack at 0x7C00 is below the
+    ; 1 MiB region the kernel and its page tables are about to use.
     mov esp, 0x90000
     mov ebp, esp
 
@@ -425,19 +442,27 @@ pm_entry:
     loop .fill_pd
 
     ; --- long mode bring-up ---
+    ; CR4.PAE must be set before EFER.LME, because the CPU refuses to enter long
+    ; mode with the physical address extension disabled.
     mov eax, cr4
     or  eax, 0x20                           ; CR4.PAE
     mov cr4, eax
 
     mov eax, PT_BASE
+    ; CR3 points at the PML4 just built, so the identity and direct maps are live
+    ; as soon as CR0.PG is set below.
     mov cr3, eax
 
     mov ecx, 0xC0000080                     ; IA32_EFER
     rdmsr
+    ; EFER.LME only arms long mode: the mode itself is entered by the far jump
+    ; below, once paging is on, which is the order the architecture requires.
     or  eax, 0x100                          ; EFER.LME
     wrmsr
 
     mov eax, cr0
+    ; CR0.PG last of the three: with PAE and LME already set this turns paging on
+    ; in long mode, and the next instruction fetch happens through the tables.
     or  eax, 0x80000000                     ; CR0.PG
     mov cr0, eax
 
