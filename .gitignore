@@ -4,7 +4,6 @@ build/
 # Local tooling indexes and caches
 .tokensave/
 .atl/
-.gga
 
 # OS noise
 .DS_Store
