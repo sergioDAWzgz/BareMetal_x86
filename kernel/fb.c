@@ -109,6 +109,16 @@ const fb_format_t *fb_format(void)
     return &fb_fmt;
 }
 
+volatile uint8_t *fb_buffer(void)
+{
+    return fb_base;
+}
+
+uint32_t fb_pack_rgb(uint32_t rgb)
+{
+    return fb_pack(rgb);
+}
+
 static volatile uint32_t *fb_slot(uint32_t x, uint32_t y)
 {
     return (volatile uint32_t *)(fb_base + (uint64_t)y * fb_stride + (uint64_t)x * 4);
@@ -151,6 +161,27 @@ void fb_fill_rect(uint32_t x, uint32_t y, uint32_t width, uint32_t height, uint3
 void fb_clear(uint32_t rgb)
 {
     fb_fill_rect(0, 0, fb_w, fb_h, rgb);
+}
+
+void fb_scroll_up(uint32_t pixels)
+{
+    uint32_t row;
+    uint64_t shift;
+
+    if (!fb_ok || pixels == 0 || pixels >= fb_h) {
+        return;
+    }
+
+    shift = (uint64_t)pixels * fb_stride;
+    for (row = 0; row + pixels < fb_h; row++) {
+        volatile uint8_t *dst = fb_base + (uint64_t)row * fb_stride;
+        const volatile uint8_t *src = dst + shift;
+        uint32_t column;
+
+        for (column = 0; column < fb_stride; column++) {
+            dst[column] = src[column];
+        }
+    }
 }
 
 /* Writes, reads back and compares every primary plus black and white, which

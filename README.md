@@ -4,10 +4,11 @@ A bare-metal x86 system built from scratch for the Jetway JNF3A (Intel Bay Trail
 Celeron N2807 / N2930) 3.5" single board computer: own bootloader, own kernel, and
 eventually video playback on real hardware.
 
-Current state: **phase 3a** - 64-bit long mode, higher-half kernel, E820 memory map,
-frame allocator, PIC/PIT, exception diagnostics, PCI enumeration and a 1024x768x32
-framebuffer driven through VBE (BIOS) or GOP (UEFI). Both boot paths run the same
-kernel. See `docs/roadmap.md`.
+Current state: **phase 3b** - 64-bit long mode, higher-half kernel, E820 memory map,
+frame allocator, PIC/PIT, exception diagnostics, PCI enumeration, a 1024x768x32
+framebuffer driven through VBE (BIOS) or GOP (UEFI) with an 8x8 text console on it,
+and a PS/2 keyboard with a line echo loop. Both boot paths run the same kernel.
+See `docs/roadmap.md`.
 
 ## Requirements
 
@@ -35,6 +36,11 @@ sudo apt-get install nasm binutils qemu-system-x86 gnu-efi mtools ovmf
 `run.sh` and `test.sh` need QEMU. `build.sh` alone needs no emulator, and it skips
 the UEFI artefacts with a warning when `gnu-efi` or `mtools` is missing.
 
+On the BIOS path `test.sh` also drives the keyboard: it boots QEMU with a monitor
+socket and sends `hello` plus Enter through the emulated 8042, then asserts the
+line the kernel echoes back. That needs `python3`; without it the keystroke check
+is skipped and the rest still runs.
+
 ## Boot chain
 
 There are two boot paths to the same kernel binary.
@@ -53,9 +59,10 @@ There are two boot paths to the same kernel binary.
    `0xFFFF800000000000` plus the kernel at `0xFFFFFFFF80000000`, then enables IA-32e
    and jumps to the kernel.
 3. **kernel** (`kernel/`, linked at `0xFFFFFFFF80010000`): clears `.bss`, installs
-   its own GDT with a TSS and a 48-vector IDT, remaps the PIC, starts the PIT, prints
-   the memory map, initialises the frame allocator, probes the framebuffer and
-   enumerates PCI.
+   its own GDT with a TSS and a 48-vector IDT, remaps the PIC, starts the PIT,
+   enables interrupts, prints the memory map, initialises the frame allocator,
+   probes the framebuffer, switches to an 8x8 text console drawn straight onto it,
+   enumerates PCI, then initialises the 8042 keyboard and echoes typed lines.
 
 **UEFI** (`boot/uefi/loader.c`, `BOOTX64.EFI` on an ESP):
 

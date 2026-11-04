@@ -7,8 +7,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 QEMU=${QEMU:-qemu-system-x86_64}
-BOOT_SECONDS=${BOOT_SECONDS:-10}
-UEFI_SECONDS=${UEFI_SECONDS:-40}
+BOOT_SECONDS=${BOOT_SECONDS:-20}
+UEFI_SECONDS=${UEFI_SECONDS:-25}
 OVMF_CODE=${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}
 OVMF_VARS=${OVMF_VARS:-/usr/share/OVMF/OVMF_VARS_4M.fd}
 
@@ -20,6 +20,9 @@ fi
 if [ ! -f build/baremetal.img ]; then
   ./build.sh
 fi
+
+SCRATCH=$(mktemp -d)
+trap 'rm -rf "$SCRATCH"' EXIT
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
@@ -35,21 +38,50 @@ common_assertions() {
   grep -q 'pmm: free frames [0-9]'              "$log" || fail "$label: frame allocator test missing"
   grep -q 'fb: [0-9]*x[0-9]* bpp=32'            "$log" || fail "$label: framebuffer not initialised"
   grep -q 'fb: pixel readback self-test passed' "$log" || fail "$label: framebuffer readback failed"
+  grep -q 'fb: text console [0-9]*x[0-9]* cells' "$log" || fail "$label: framebuffer text console did not start"
   grep -q 'pci: [0-9]* devices enumerated'      "$log" || fail "$label: PCI enumeration did not run"
   grep -q 'pci: intel devices [1-9]'            "$log" || fail "$label: no Intel PCI device found"
   grep -q 'pit: *[0-9]* ticks observed'         "$log" || fail "$label: PIT ticks not observed"
   grep -q 'exc: resumed after breakpoint'       "$log" || fail "$label: breakpoint did not resume"
+  grep -q 'exc: resumed after divide error'     "$log" || fail "$label: divide error did not resume"
+  grep -q 'kbd: scancode translation self-test passed' "$log" || fail "$label: scancode translation is wrong"
+  grep -q 'kbd: controller ready'               "$log" || fail "$label: 8042 controller was not initialised"
   grep -q 'Phase 3 complete'                    "$log" || fail "$label: phase 3 did not complete"
 }
 
 # --- BIOS / legacy path ----------------------------------------------------
 LOG=build/serial-bios.log
+MONITOR="$SCRATCH/monitor.sock"
+KEYS_INJECTED=0
 rm -f "$LOG"
-timeout "$BOOT_SECONDS" "$QEMU" \
-  -machine pc -cpu qemu64 \
-  -drive file=build/baremetal.img,format=raw,if=ide,index=0 \
-  -m 256 -boot c -display none -serial "file:$LOG" -no-reboot \
-  >/dev/null 2>&1 || true
+
+if command -v python3 >/dev/null 2>&1; then
+  # Run with a monitor socket so real keystrokes can be injected through the
+  # emulated 8042, then asserted from the serial log.
+  "$QEMU" \
+    -machine pc -cpu qemu64 \
+    -drive file=build/baremetal.img,format=raw,if=ide,index=0 \
+    -m 256 -boot c -display none -serial "file:$LOG" -no-reboot \
+    -monitor "unix:$MONITOR,server,nowait" \
+    >/dev/null 2>&1 &
+  QEMU_PID=$!
+
+  python3 scripts/send-keys.py "$MONITOR" h e l l o ret --quit >/dev/null 2>&1 || true
+  KEYS_INJECTED=1
+
+  for _ in $(seq 1 20); do
+    kill -0 "$QEMU_PID" 2>/dev/null || break
+    sleep 0.5
+  done
+  kill "$QEMU_PID" 2>/dev/null || true
+  wait "$QEMU_PID" 2>/dev/null || true
+else
+  timeout "$BOOT_SECONDS" "$QEMU" \
+    -machine pc -cpu qemu64 \
+    -drive file=build/baremetal.img,format=raw,if=ide,index=0 \
+    -m 256 -boot c -display none -serial "file:$LOG" -no-reboot \
+    >/dev/null 2>&1 || true
+fi
 
 echo '--- serial output (BIOS) ---'
 cat "$LOG"
@@ -63,7 +95,13 @@ grep -q 'boot: source=bios framebuffer=0x'     "$LOG" || fail 'bios: boot info b
 grep -q 'mode=1024x768x32'                     "$LOG" || fail 'bios: VBE mode is not 1024x768x32'
 common_assertions "$LOG" bios
 
-echo 'PASS: bios path reaches long mode with a linear framebuffer and PCI'
+if [ "$KEYS_INJECTED" -eq 1 ]; then
+  grep -q 'kbd: typed "hello"'                 "$LOG" || fail 'bios: injected keystrokes never reached the kernel'
+else
+  echo 'skip: python3 is missing, keystrokes were not injected' >&2
+fi
+
+echo 'PASS: bios path reaches long mode with a framebuffer, PCI and a PS/2 keyboard'
 
 # --- UEFI path -------------------------------------------------------------
 if [ ! -f build/esp.img ]; then
@@ -75,7 +113,6 @@ if [ ! -f "$OVMF_CODE" ] || [ ! -f "$OVMF_VARS" ]; then
   exit 0
 fi
 
-mkdir -p build
 cp "$OVMF_VARS" build/OVMF_VARS.fd
 LOG=build/serial-uefi.log
 rm -f "$LOG"
@@ -95,8 +132,8 @@ grep -q 'uefi: loader started'                 "$LOG" || fail 'uefi: loader neve
 grep -q 'uefi: gop [0-9]*x[0-9]* pitch='       "$LOG" || fail 'uefi: GOP mode not negotiated'
 grep -q 'uefi: kernel [0-9]* bytes at 0x'      "$LOG" || fail 'uefi: kernel was not loaded'
 grep -q 'uefi: memory map [1-9][0-9]* entries published' "$LOG" || fail 'uefi: memory map not published'
-grep -q 'uefi: cr3 switched'                    "$LOG" || fail 'uefi: the loader never installed its own page tables'
-grep -q 'uefi: kernel byte 0x'                  "$LOG" || fail 'uefi: the kernel window does not resolve after the switch'
+grep -q 'uefi: cr3 switched'                   "$LOG" || fail 'uefi: the loader never installed its own page tables'
+grep -q 'uefi: kernel byte 0x'                 "$LOG" || fail 'uefi: the kernel window does not resolve after the switch'
 grep -q 'uefi: jumping to the kernel'          "$LOG" || fail 'uefi: never left boot services'
 grep -q 'boot: source=uefi framebuffer=0x'     "$LOG" || fail 'uefi: boot info block not published'
 grep -q 'boot: .* mode=1024x768x32'            "$LOG" || fail 'uefi: GOP mode is not 1024x768x32'

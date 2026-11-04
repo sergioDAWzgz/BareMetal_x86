@@ -51,6 +51,14 @@ void pic_eoi(uint8_t irq)
     outb(PIC1_COMMAND, 0x20);
 }
 
+void pic_unmask(uint8_t irq)
+{
+    uint16_t port = irq < 8 ? PIC1_DATA : PIC2_DATA;
+    uint8_t line = (uint8_t)(irq < 8 ? irq : irq - 8);
+
+    outb(port, (uint8_t)(inb(port) & ~(1u << line)));
+}
+
 void timer_handle(void)
 {
     timer_ticks++;

@@ -1,4 +1,5 @@
 #include "console.h"
+#include "fbtext.h"
 #include "io.h"
 
 #define COM1_PORT 0x3F8
@@ -91,6 +92,7 @@ void console_putc(char c)
 {
     serial_putc(c);
     vga_putc(c);
+    fbtext_putc(c);
 }
 
 void console_write(const char *text)

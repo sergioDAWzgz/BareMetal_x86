@@ -1,12 +1,14 @@
 #include "idt.h"
 #include "console.h"
 #include "gdt.h"
+#include "keyboard.h"
 #include "pic.h"
 
 #define IDT_FLAG_PRESENT 0x80
 #define IDT_FLAG_INTERRUPT_GATE 0x0E
 #define IDT_STUB_COUNT 48
 #define IRQ0_VECTOR 32
+#define IRQ1_VECTOR 33
 
 typedef struct __attribute__((packed)) {
     uint16_t offset_low;
@@ -84,6 +86,11 @@ void exception_dispatch(interrupt_frame_t *frame)
 {
     if (frame->vector == IRQ0_VECTOR) {
         timer_handle();
+        return;
+    }
+
+    if (frame->vector == IRQ1_VECTOR) {
+        keyboard_handle();
         return;
     }
 

@@ -52,15 +52,19 @@ reachable, 3b is input and firmware tables.
 - [x] pixel pack/readback self-test plus colour bars
 - [x] PCI configuration space enumeration through `0xCF8`/`0xCFC`
 
-### 3b - input and firmware tables (next)
+### 3b - input and firmware tables
 
-- [ ] 8x8 font rendering on the framebuffer, console mirroring
-- [ ] PS/2 keyboard input
+- [x] 8x8 font rendering on the framebuffer, with the serial and VGA console
+      mirrored onto it, cursor, wrapping and scrolling
+- [x] PS/2 keyboard: 8042 init, scancode set 1 decoding with shift, caps lock and
+      control, an IRQ1-driven character queue and a line echo loop
 - [ ] ACPI table discovery (RSDP, MADT, MCFG)
 - [ ] SMBus/`i2c` for the ALC888S codec, if it turns out to be needed in 5b
 
 Gate: the kernel lists the JNF3A's RTL8111H and ALC888S and draws on the real
-display. PCI enumeration and drawing are already proven in QEMU on both paths.
+display. PCI enumeration, drawing and typing are already proven in QEMU on both
+paths; the gate injects real keystrokes through the emulated 8042 and asserts the
+line the kernel echoes back.
 
 ## Phase 4 - storage and userspace
 

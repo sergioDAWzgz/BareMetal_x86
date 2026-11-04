@@ -2,15 +2,19 @@
 #include "console.h"
 #include "cpu.h"
 #include "fb.h"
+#include "fbtext.h"
 #include "gdt.h"
 #include "idt.h"
 #include "io.h"
+#include "keyboard.h"
 #include "memory.h"
 #include "pci.h"
 #include "pic.h"
 
 #define TIMER_HZ 100
 #define TICKS_TO_OBSERVE 10
+#define BARS_VISIBLE_TICKS TIMER_HZ
+#define KBD_LINE_MAX 96
 
 extern void divide_error_probe(void);
 
@@ -81,8 +85,85 @@ static void video_demo(void)
     }
 
     console_write("fb: pixel readback self-test passed\n");
+
     fb_draw_bars();
     console_write("fb: colour bars drawn\n");
+    wait_ticks(BARS_VISIBLE_TICKS);
+
+    if (fbtext_init() != 0) {
+        console_write("fb: text console did not start\n");
+        return;
+    }
+
+    console_write("fb: text console ");
+    console_dec(fbtext_cols());
+    console_write("x");
+    console_dec(fbtext_rows());
+    console_write(" cells\n");
+
+    fbtext_write("BareMetal_x86\n");
+    fbtext_write("phase 3b - framebuffer console\n\n");
+}
+
+static void keyboard_start(void)
+{
+    if (keyboard_self_test() != 0) {
+        console_write("kbd: scancode translation self-test failed\n");
+    } else {
+        console_write("kbd: scancode translation self-test passed\n");
+    }
+
+    if (keyboard_init() != 0) {
+        console_write("kbd: the 8042 controller rejected the init sequence\n");
+        return;
+    }
+
+    console_write("kbd: controller ready, IRQ1 unmasked\n");
+}
+
+static void keyboard_echo_loop(void)
+{
+    char line[KBD_LINE_MAX];
+    unsigned int length = 0;
+
+    console_write("kbd: echo loop, type and press enter, esc to leave\n");
+
+    for (;;) {
+        int key = keyboard_getchar();
+
+        if (key < 0) {
+            __asm__ volatile("hlt");
+            continue;
+        }
+
+        if (key == KEY_ESCAPE) {
+            console_write("\nkbd: escape received, leaving the echo loop\n");
+            return;
+        }
+
+        if (key == KEY_ENTER) {
+            line[length] = '\0';
+            console_write("\nkbd: typed \"");
+            console_write(line);
+            console_write("\"\n");
+            length = 0;
+            continue;
+        }
+
+        if (key == KEY_BACKSPACE) {
+            if (length > 0) {
+                length--;
+                console_write("\b \b");
+            }
+            continue;
+        }
+
+        if (length + 1 < sizeof(line)) {
+            line[length] = (char)key;
+            length++;
+            console_putc((char)key);
+        }
+    }
 }
 
 void kmain(void)
@@ -117,6 +198,8 @@ void kmain(void)
     console_dec(TIMER_HZ);
     console_write(" Hz\n");
 
+    interrupts_enable();
+
     memmap_print();
 
     pmm_init();
@@ -128,7 +211,6 @@ void kmain(void)
     pci_enumerate();
     pci_print();
 
-    interrupts_enable();
     wait_ticks(TICKS_TO_OBSERVE);
     console_write("pit:       ");
     console_dec(timer_ticks_get());
@@ -136,7 +218,12 @@ void kmain(void)
 
     fault_demo();
 
-    console_write("\nPhase 3 complete. Halting.\n");
+    keyboard_start();
+
+    console_write("\nPhase 3 complete.\n");
+    keyboard_echo_loop();
+
+    console_write("Phase 3b complete. Halting.\n");
     interrupts_disable();
     for (;;) {
         __asm__ volatile("hlt");
