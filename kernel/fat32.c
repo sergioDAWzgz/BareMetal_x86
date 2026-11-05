@@ -327,45 +327,88 @@ int fat32_open(const char *name, fat32_file_t *file)
 
 int32_t fat32_read(const fat32_file_t *file, void *buffer, uint32_t capacity)
 {
+    return fat32_read_at(file, 0, buffer, capacity, file->size);
+}
+
+int32_t fat32_read_at(const fat32_file_t *file, uint32_t offset, void *buffer,
+                      uint32_t capacity, uint32_t length)
+{
     uint8_t *destination = (uint8_t *)buffer;
-    uint32_t remaining = file->size;
+    uint32_t cluster_bytes = volume.sectors_per_cluster * FAT32_SECTOR_SIZE;
     uint32_t cluster = file->cluster;
-    uint32_t needed = (file->size + FAT32_SECTOR_SIZE - 1) & ~(FAT32_SECTOR_SIZE - 1);
+    uint32_t needed;
+    uint32_t position;
+    uint32_t remaining = length;
+    uint32_t skip;
     uint32_t visited = 0;
 
+    if (!volume.mounted) {
+        failure = "no volume is mounted";
+        return -1;
+    }
+    if (length == 0 || (uint64_t)offset + length > file->size) {
+        failure = "the range leaves the file";
+        return -1;
+    }
+    if ((offset % FAT32_SECTOR_SIZE) != 0) {
+        failure = "the range does not start on a sector boundary";
+        return -1;
+    }
+    needed = (length + FAT32_SECTOR_SIZE - 1) & ~(FAT32_SECTOR_SIZE - 1);
     if (capacity < needed) {
-        failure = "the destination is smaller than the file";
+        failure = "the destination is smaller than the range";
         return -1;
     }
 
+    /* The chain is a linked list, so reaching a range deep inside a file costs one
+       FAT entry per cluster in front of it. The loader reads from offset zero and
+       pays nothing. */
+    skip = offset / cluster_bytes;
+    while (skip > 0) {
+        cluster = next_cluster(cluster);
+        if (cluster == 0) {
+            failure = "the file chain is broken";
+            return -1;
+        }
+        skip--;
+    }
+    position = offset % cluster_bytes;
+
     while (remaining > 0) {
-        uint32_t sector_index;
+        uint32_t sector = position / FAT32_SECTOR_SIZE;
+        uint32_t room = cluster_bytes - position;
+        uint32_t run = remaining < room ? remaining : room;
+        uint32_t sectors = (run + FAT32_SECTOR_SIZE - 1) / FAT32_SECTOR_SIZE;
 
         if (cluster < FIRST_DATA_CLUSTER || cluster > volume.cluster_count + 1 ||
             visited > volume.cluster_count) {
             failure = "the file chain is broken";
             return -1;
         }
-
-        for (sector_index = 0;
-             sector_index < volume.sectors_per_cluster && remaining > 0;
-             sector_index++) {
-            uint32_t bytes = remaining < FAT32_SECTOR_SIZE ? remaining
-                                                           : FAT32_SECTOR_SIZE;
-
-            if (ahci_read(volume.port, cluster_lba(cluster) + sector_index,
-                          1, destination) != 0) {
-                failure = "a file sector could not be read";
-                return -1;
-            }
-            destination += FAT32_SECTOR_SIZE;
-            remaining -= bytes;
+        /* One command per cluster instead of one per sector: the transfer stays
+           inside a cluster, so it can never cross into a sector the file does not
+           own. The last one rounds up and rewrites part of its final sector,
+           which capacity already covers. */
+        if (ahci_read(volume.port, cluster_lba(cluster) + sector, sectors,
+                      destination) != 0) {
+            failure = "a file sector could not be read";
+            return -1;
         }
 
-        cluster = next_cluster(cluster);
+        destination += sectors * FAT32_SECTOR_SIZE;
+        remaining -= run;
+        position = 0;
         visited++;
+
+        if (remaining > 0) {
+            cluster = next_cluster(cluster);
+            if (cluster == 0) {
+                failure = "the file chain is broken";
+                return -1;
+            }
+        }
     }
-    return (int32_t)file->size;
+    return (int32_t)length;
 }
 
 void fat32_print(void)

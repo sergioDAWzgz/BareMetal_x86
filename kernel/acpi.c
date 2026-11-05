@@ -409,6 +409,11 @@ uint32_t acpi_interrupt_override_count(void)
     return override_count;
 }
 
+uint64_t acpi_rsdp_physical(void)
+{
+    return rsdp_physical;
+}
+
 int acpi_ecam(uint64_t *base, uint8_t *first_bus, uint8_t *last_bus)
 {
     if (!ecam_valid) {

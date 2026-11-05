@@ -7,8 +7,11 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 QEMU=${QEMU:-qemu-system-x86_64}
-BOOT_SECONDS=${BOOT_SECONDS:-20}
-UEFI_SECONDS=${UEFI_SECONDS:-25}
+# Every path now boots a real Linux kernel after the demos, and QEMU emulates the
+# CPU in software, so these are generous on purpose: a timeout that fires during
+# the payload would look like a loader bug.
+BOOT_SECONDS=${BOOT_SECONDS:-120}
+UEFI_SECONDS=${UEFI_SECONDS:-150}
 OVMF_CODE=${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}
 OVMF_VARS=${OVMF_VARS:-/usr/share/OVMF/OVMF_VARS_4M.fd}
 
@@ -46,7 +49,11 @@ DATA_DISK_Q35=(
 )
 
 SCRATCH=$(mktemp -d)
-trap 'rm -rf "$SCRATCH"' EXIT
+# Cleanup must never decide the verdict. With `set -e`, a command that fails
+# inside an EXIT trap replaces the status of the script, so a green run would
+# exit 1 whenever /tmp cannot be emptied -- a red gate that says nothing about
+# the image. The assertions below are the only thing allowed to fail this file.
+trap 'rm -rf -- "$SCRATCH" || echo "WARNING: could not remove $SCRATCH" >&2' EXIT
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
@@ -101,6 +108,19 @@ common_assertions() {
   grep -q 'kbd: controller ready'               "$log" || fail "$label: 8042 controller was not initialised"
   grep -q 'Phase 3 complete'                    "$log" || fail "$label: phase 3 did not complete"
   grep -q 'Phase 4 complete'                    "$log" || fail "$label: phase 4 did not complete"
+  grep -q 'kbd: idle, leaving the echo loop'    "$log" || fail "$label: the keyboard demo never yielded to the payload"
+  grep -q 'linux: LINUX.BIN [0-9][0-9]* bytes protocol 2\.' "$log" \
+    || fail "$label: the Linux payload was not opened"
+  grep -q 'linux: load 0x[0-9a-f]* init_size 0x[0-9a-f]* runtime 0x[0-9a-f]*' "$log" \
+    || fail "$label: the payload load window was not reported"
+  grep -q 'linux: boot_params 0x[0-9a-f]* cmdline 0x[0-9a-f]*' "$log" \
+    || fail "$label: the zero page was not built"
+  grep -q 'linux: e820 [1-9][0-9]* entries'     "$log" \
+    || fail "$label: the memory map was not handed to Linux"
+  grep -q 'linux: jumping to the 64-bit entry at 0x[0-9a-f]*' "$log" \
+    || fail "$label: the loader never jumped to the Linux entry point"
+  grep -q 'Linux version 6\.12\.115'            "$log" \
+    || fail "$label: the Linux payload did not start"
 }
 
 # --- BIOS / legacy path ----------------------------------------------------
@@ -123,7 +143,7 @@ if [ "$HAVE_PYTHON" -eq 1 ]; then
     -machine pc -cpu qemu64 \
     -drive file=build/baremetal.img,format=raw,if=ide,index=0 \
     "${DATA_DISK[@]}" \
-    -m 256 -boot c -display none -serial "file:$LOG" -no-reboot \
+    -m 512 -boot c -display none -serial "file:$LOG" -no-reboot \
     -monitor "unix:$MONITOR,server,nowait" \
     >/dev/null 2>&1 &
   QEMU_PID=$!
@@ -143,12 +163,16 @@ if [ "$HAVE_PYTHON" -eq 1 ]; then
   fi
 
   if ! python3 scripts/send-keys.py "$MONITOR" --settle 0 \
-       h e l l o ret --quit >/dev/null 2>&1; then
+       h e l l o ret >/dev/null 2>&1; then
     fail 'bios: the keystroke injector never reached the QEMU monitor'
   fi
   KEYS_INJECTED=1
 
-  for _ in $(seq 1 20); do
+  # The echo loop yields a few seconds after the last keystroke and the payload
+  # starts from there, so the wait is on Linux's own banner instead of a fixed
+  # sleep that would race the decompressor.
+  for _ in $(seq 1 200); do
+    grep -q 'Linux version' "$LOG" 2>/dev/null && break
     kill -0 "$QEMU_PID" 2>/dev/null || break
     sleep 0.5
   done
@@ -159,7 +183,7 @@ else
     -machine pc -cpu qemu64 \
     -drive file=build/baremetal.img,format=raw,if=ide,index=0 \
     "${DATA_DISK[@]}" \
-    -m 256 -boot c -display none -serial "file:$LOG" -no-reboot \
+    -m 512 -boot c -display none -serial "file:$LOG" -no-reboot \
     >/dev/null 2>&1 || true
 fi
 
@@ -188,7 +212,7 @@ echo 'PASS: bios path reaches long mode with a framebuffer, PCI and a PS/2 keybo
 LOG=build/serial-q35.log
 rm -f "$LOG"
 timeout "$BOOT_SECONDS" "$QEMU" \
-  -machine q35 -cpu qemu64 -m 256 \
+  -machine q35 -cpu qemu64 -m 512 \
   -drive file=build/baremetal.img,format=raw,if=none,id=disk0 \
   -device ide-hd,drive=disk0,bootindex=1 \
   "${DATA_DISK_Q35[@]}" \
@@ -225,7 +249,7 @@ cp "$OVMF_VARS" build/OVMF_VARS.fd
 LOG=build/serial-uefi.log
 rm -f "$LOG"
 timeout "$UEFI_SECONDS" "$QEMU" \
-  -machine pc -cpu qemu64 -m 256 \
+  -machine pc -cpu qemu64 -m 512 \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file=build/OVMF_VARS.fd \
   -drive file=build/esp.img,format=raw,if=ide,index=0 \

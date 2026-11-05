@@ -201,3 +201,42 @@ uint64_t pmm_free_frames(void)
     }
     return free_frames;
 }
+
+uint64_t pmm_limit(void)
+{
+    return PMM_LIMIT;
+}
+
+int pmm_reserve_range(uint64_t base, uint64_t size)
+{
+    uint64_t first;
+    uint64_t end;
+    uint64_t frame;
+    uint64_t last;
+
+    if (size == 0) {
+        return 0;
+    }
+
+    end = base + size;
+    /* A range that wraps or leaves the managed window cannot be honoured, and
+       clamping it would silently reserve less than the caller asked for. */
+    if (end < base || base < PMM_FIRST_USABLE || end > PMM_LIMIT) {
+        return -1;
+    }
+
+    first = base / FRAME_SIZE;
+    last = (end + FRAME_SIZE - 1) / FRAME_SIZE;
+
+    /* Check before marking: a partial reservation would leave the allocator in a
+       state the caller cannot reason about after it reports failure. */
+    for (frame = first; frame < last; frame++) {
+        if (!frame_is_free(frame)) {
+            return -1;
+        }
+    }
+    for (frame = first; frame < last; frame++) {
+        frame_mark_used(frame);
+    }
+    return 0;
+}

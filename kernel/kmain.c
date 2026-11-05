@@ -12,6 +12,7 @@
 #include "io.h"
 #include "keyboard.h"
 #include "lib.h"
+#include "linuxboot.h"
 #include "memory.h"
 #include "pci.h"
 #include "pic.h"
@@ -23,6 +24,11 @@
 #define TICKS_TO_OBSERVE 10
 #define BARS_VISIBLE_TICKS TIMER_HZ
 #define KBD_LINE_MAX 96
+/* How long the echo loop waits for a keystroke before yielding to the payload.
+   The loop demonstrates the 8042 path; it is not the destination of the boot, so
+   an unattended board - and the q35 and UEFI gate paths, which inject no
+   keystrokes - still has to reach Linux. */
+#define KBD_IDLE_TICKS (5 * TIMER_HZ)
 /* The stack the CPU switches to on every interrupt taken from ring 3. Separate
    from the boot stack so a user process can never walk into kernel frames, and
    from the user stack so a deep user call chain cannot reach kernel data. */
@@ -138,6 +144,7 @@ static void keyboard_echo_loop(void)
 {
     char line[KBD_LINE_MAX];
     unsigned int length = 0;
+    uint64_t last_key = timer_ticks_get();
 
     console_write("kbd: echo loop, type and press enter, esc to leave\n");
 
@@ -145,9 +152,15 @@ static void keyboard_echo_loop(void)
         int key = keyboard_getchar();
 
         if (key < 0) {
+            if (timer_ticks_get() - last_key >= KBD_IDLE_TICKS) {
+                console_write("\nkbd: idle, leaving the echo loop\n");
+                return;
+            }
             __asm__ volatile("hlt");
             continue;
         }
+
+        last_key = timer_ticks_get();
 
         if (key == KEY_ESCAPE) {
             console_write("\nkbd: escape received, leaving the echo loop\n");
@@ -379,7 +392,16 @@ void kmain(void)
     phase4();
     console_write("Phase 4 complete.\n");
 
+    /* The echo loop runs first and yields after a few seconds without a key, so
+       the keyboard path stays proven on the one gate path that can inject
+       keystrokes without holding the payload for every other path. */
     keyboard_echo_loop();
+
+    if (linux_payload_boot() != 0) {
+        console_write("linux: ");
+        console_write(linux_payload_error());
+        console_write("\n");
+    }
 
     console_write("bmx: halting\n");
     interrupts_disable();

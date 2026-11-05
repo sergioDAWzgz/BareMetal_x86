@@ -47,8 +47,10 @@ step "assemble kernel entry and interrupt stubs"
 "$NASM" -f elf64 kernel/entry.asm -o "$BUILD_DIR/kernel/entry.o"
 "$NASM" -f elf64 kernel/isr.asm -o "$BUILD_DIR/kernel/isr.o"
 "$NASM" -f elf64 kernel/usermode.asm -o "$BUILD_DIR/kernel/usermode.o"
+"$NASM" -f elf64 kernel/linuxjump.asm -o "$BUILD_DIR/kernel/linuxjump.o"
 objects=("$BUILD_DIR/kernel/entry.o" "$BUILD_DIR/kernel/isr.o" \
-         "$BUILD_DIR/kernel/usermode.o" "${objects[@]}")
+         "$BUILD_DIR/kernel/usermode.o" "$BUILD_DIR/kernel/linuxjump.o" \
+         "${objects[@]}")
 
 step "link kernel"
 "$LD" -m elf_x86_64 -T kernel/kernel.ld -o "$BUILD_DIR/kernel.elf" "${objects[@]}"
@@ -137,6 +139,118 @@ USER_CFLAGS=(
   -o "$BUILD_DIR/USER.ELF" "$BUILD_DIR/crt0.o" "$BUILD_DIR/user-libc.o" \
   "$BUILD_DIR/user-main.o"
 
+# The Linux payload. It is a pinned upstream tarball built with a fragment on top
+# of defconfig. Both the version and the digest are constants here: a mirror that
+# served something else would silently change the payload, and an unpinned version
+# would make two builds of the same commit produce different images.
+#
+# The work area cannot live under build/. The kernel build system refuses to run
+# from a path with a space or a colon in it, and this repository is checked out
+# under "Linux distro for playing video" on some machines. The download, the
+# extracted tree and the build tree therefore go to the XDG cache, which also puts
+# them on the native filesystem rather than a Windows mount. Set BMX_LINUX_CACHE
+# to move them.
+#
+# Building a kernel takes minutes while everything else in this script takes
+# seconds, so the work area survives rm -rf build/: a clean of the artefacts must
+# not force a rebuild of a kernel nothing changed. The stamp ties the build tree
+# to one revision of the fragment; changing the fragment or the version rebuilds.
+LINUX_VERSION=6.12.115
+LINUX_SHA256=0ec90fe4b20422b1b664b77e6d2dde22b40bd41e7eb2cad8ac8739a4749cb1bb
+LINUX_FRAGMENT=configs/linux-baytrail.fragment
+LINUX_CACHE=${BMX_LINUX_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/bmx}
+case "$LINUX_CACHE" in
+  /*) ;;
+  *) LINUX_CACHE="$PWD/$LINUX_CACHE" ;;
+esac
+# The kernel's top-level Makefile aborts on a source path with a space or a colon,
+# so the cache location is validated here where the reason can be printed.
+case "$LINUX_CACHE" in
+  *[[:space:]:]*)
+    echo "error: BMX_LINUX_CACHE cannot contain a space or a colon: $LINUX_CACHE" >&2
+    echo "       the Linux build system refuses such a path" >&2
+    exit 1
+    ;;
+esac
+LINUX_SOURCE="$LINUX_CACHE/linux-$LINUX_VERSION"
+LINUX_TREE="$LINUX_CACHE/build-$LINUX_VERSION"
+LINUX_TARBALL="$LINUX_CACHE/linux-$LINUX_VERSION.tar.xz"
+
+step "build the Linux payload"
+for tool in make flex bison bc curl tar; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "error: building the Linux payload needs $tool on the build host" >&2
+    echo "       apt-get install build-essential bc flex bison libelf-dev" >&2
+    exit 1
+  fi
+done
+
+# tools/objtool is mandatory on x86_64 and links against libelf, so its headers
+# are a build dependency of any x86_64 kernel in this series. The probe uses the
+# same host flags make will use, so a header installed anywhere on the search path
+# counts.
+if ! printf '#include <gelf.h>\n' | ${HOSTCC:-gcc} ${HOSTCFLAGS:-} -E - >/dev/null 2>&1; then
+  echo "error: the kernel build needs the libelf headers (tools/objtool uses them)" >&2
+  echo "       apt-get install libelf-dev" >&2
+  exit 1
+fi
+
+# certs/Makefile lists "hostprogs := extract-cert" unconditionally and certs/ is
+# part of core-y, so every x86 build compiles that helper and links it against
+# libcrypto, even with no modules and no system keyring. The probe links instead of
+# only preprocessing, because a missing shared library fails at link time and would
+# otherwise surface minutes into the build.
+if ! printf '#include <openssl/bio.h>\nint main(void){return 0;}\n' | \
+     ${HOSTCC:-gcc} ${HOSTCFLAGS:-} -x c - -o "$BUILD_DIR/.openssl-probe" \
+     ${HOSTLDFLAGS:-} -lcrypto >/dev/null 2>&1; then
+  echo "error: the kernel build needs libcrypto (certs/extract-cert links it)" >&2
+  echo "       apt-get install libssl-dev" >&2
+  exit 1
+fi
+rm -f "$BUILD_DIR/.openssl-probe"
+
+# tools/scripts/Makefile.include runs "cd $(PWD)" with O= on the command line, and
+# PWD is the shell's variable rather than make's: run make from a directory with a
+# space in it and that cd stops at the space. Making the cache the working
+# directory keeps PWD honest wherever this repository is checked out.
+kernel_make() {
+  ( cd "$LINUX_CACHE" && make -C "$LINUX_SOURCE" O="$LINUX_TREE" "$@" )
+}
+
+mkdir -p "$LINUX_CACHE"
+if [ ! -f "$LINUX_TARBALL" ]; then
+  echo "downloading linux-$LINUX_VERSION.tar.xz into $LINUX_CACHE" >&2
+  curl -fsSL -o "$LINUX_TARBALL.part" \
+    "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$LINUX_VERSION.tar.xz"
+  mv "$LINUX_TARBALL.part" "$LINUX_TARBALL"
+fi
+echo "$LINUX_SHA256  $LINUX_TARBALL" | sha256sum -c --quiet -
+
+# merge_config.sh is near the end of the archive, so its presence is a cheap
+# completeness check for an extraction that was interrupted.
+if [ ! -f "$LINUX_SOURCE/scripts/kconfig/merge_config.sh" ]; then
+  rm -rf "$LINUX_SOURCE"
+  tar -xf "$LINUX_TARBALL" -C "$LINUX_CACHE"
+fi
+
+fragment_stamp=$(sha256sum "$LINUX_FRAGMENT" | cut -d' ' -f1)
+if [ ! -f "$LINUX_TREE/.fragment-$fragment_stamp" ]; then
+  mkdir -p "$LINUX_TREE"
+  # The configuration is regenerated from defconfig every time, so a fragment that
+  # drops an option really drops it instead of leaving it in a stale .config. The
+  # objects stay: make rebuilds whatever the new configuration affects, which turns
+  # a fragment edit into a short incremental build instead of a full one.
+  rm -f "$LINUX_TREE/.fragment-"*
+  cp "$LINUX_FRAGMENT" "$LINUX_TREE/.fragment"
+  kernel_make defconfig
+  "$LINUX_SOURCE/scripts/kconfig/merge_config.sh" -m -Q -O "$LINUX_TREE" \
+    "$LINUX_TREE/.config" "$LINUX_TREE/.fragment"
+  kernel_make olddefconfig
+  touch "$LINUX_TREE/.fragment-$fragment_stamp"
+fi
+kernel_make -j"$(nproc)" bzImage
+cp "$LINUX_TREE/arch/x86/boot/bzImage" "$BUILD_DIR/bzImage"
+
 # The data volume the kernel mounts in phase 4. It is a real FAT32 filesystem
 # with a known label, so the kernel's read-only driver is checked against an
 # image any other system can inspect, and the label lets the kernel pick the
@@ -152,8 +266,10 @@ rm -f "$DATA_IMAGE"
 "$MFORMAT" -i "$DATA_IMAGE" -C -F -T "$DATA_SECTORS" -v BMXDATA ::
 "$MCOPY" -i "$DATA_IMAGE" data/HELLO.TXT ::/HELLO.TXT
 "$MCOPY" -i "$DATA_IMAGE" "$BUILD_DIR/USER.ELF" ::/USER.ELF
+"$MCOPY" -i "$DATA_IMAGE" "$BUILD_DIR/bzImage" ::/LINUX.BIN
 
 printf '\nkernel.bin    %s bytes (limit %s)\n' "$kernel_size" "$KERNEL_LIMIT"
+printf 'bzImage       %s bytes\n' "$(stat -c %s "$BUILD_DIR/bzImage")"
 printf 'baremetal.img %s bytes\n' "$(stat -c %s "$BUILD_DIR/baremetal.img")"
 printf 'data.img      %s bytes\n' "$(stat -c %s "$DATA_IMAGE")"
 if [ -f "$BUILD_DIR/uefi/BOOTX64.EFI" ]; then

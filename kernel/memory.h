@@ -35,4 +35,18 @@ uintptr_t pmm_alloc_frames(uint64_t count);
 void pmm_free_frame(uintptr_t frame);
 uint64_t pmm_free_frames(void);
 
+/* The highest physical address the frame allocator manages, exclusive. A caller
+   searching for a window to reserve uses it to tell "this range is taken" from
+   "this range is past the end of the map": only the first one is worth retrying
+   at a higher address. */
+uint64_t pmm_limit(void);
+
+/* Takes every frame that overlaps [base, base + size) out of the free set before
+   anything is copied there. Returns 0 when the whole range is now reserved, -1
+   when a frame inside it had already been handed out: overwriting memory some
+   other part of the kernel owns is worse than refusing to start the payload, so
+   the caller gets the chance to stop instead. A range that leaves the managed
+   window is refused for the same reason. */
+int pmm_reserve_range(uint64_t base, uint64_t size);
+
 #endif

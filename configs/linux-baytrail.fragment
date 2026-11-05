@@ -1,0 +1,56 @@
+# Linux configuration for the Jetway JNF3A payload.
+#
+# build.sh applies this on top of defconfig with scripts/kconfig/merge_config.sh,
+# so only the decisions that differ from a generic x86_64 kernel live here. The
+# result is auditable: a reader sees every deviation without diffing a 5000 line
+# .config against a version they do not have.
+
+# The payload boots headless and every phase 5 gate assertion is read from COM1.
+CONFIG_SERIAL_8250=y
+CONFIG_SERIAL_8250_CONSOLE=y
+CONFIG_SERIAL_8250_NR_UARTS=4
+CONFIG_SERIAL_8250_RUNTIME_UARTS=4
+CONFIG_EARLY_PRINTK=y
+
+# The loader hands over a compressed initramfs in a contiguous frame run.
+CONFIG_BLK_DEV_INITRD=y
+CONFIG_RD_GZIP=y
+
+# What the initramfs mounts. Without these /init has no /dev, no /proc and no
+# /sys, and the drivers it wants to inspect are invisible to it.
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+CONFIG_TMPFS=y
+CONFIG_PROC_FS=y
+CONFIG_SYSFS=y
+
+CONFIG_BINFMT_ELF=y
+CONFIG_BINFMT_SCRIPT=y
+
+# Storage. The board has one SATA II port behind AHCI; QEMU's pc machine also
+# exposes a PIIX controller, which is where the BIOS path keeps its boot disk.
+CONFIG_ATA=y
+CONFIG_SATA_AHCI=y
+CONFIG_ATA_PIIX=y
+CONFIG_BLK_DEV_SD=y
+
+# Gen7 graphics. i915 is the reason this payload exists at all.
+CONFIG_DRM=y
+CONFIG_DRM_I915=y
+
+# One self-contained image: everything the board needs is built in, so there is no
+# module loader and no module signing.
+# CONFIG_MODULES is not set
+
+# Deterministic placement. The loader loads the image at the address its own
+# header asks for and the gate asserts the address it reported; a randomised
+# base would move the kernel behind the loader's back.
+# CONFIG_RANDOMIZE_BASE is not set
+CONFIG_RELOCATABLE=y
+
+# tools/objtool is mandatory on x86_64 in 6.12: arch/x86 selects HAVE_OBJTOOL
+# whenever X86_64, and HAVE_UACCESS_VALIDATION selects OBJTOOL unconditionally.
+# No unwinder or mitigation choice avoids it, so the host needs libelf headers
+# (libelf-dev). That is why nothing here tries to dodge objtool any more, and why
+# the unwinder and the speculation mitigations are left at their defaults: a
+# payload built like an ordinary kernel is the point.

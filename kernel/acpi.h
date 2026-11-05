@@ -39,6 +39,12 @@ uint32_t acpi_interrupt_override_count(void);
    fills the outputs on success, -1 when there is no usable entry. */
 int acpi_ecam(uint64_t *base, uint8_t *first_bus, uint8_t *last_bus);
 
+/* Physical address of the RSDP this kernel validated, or 0 before acpi_init has
+   found one. Linux needs it on the UEFI path: there the pointer only exists in
+   the firmware configuration table, which nothing can scan for after the
+   loader has left boot services. */
+uint64_t acpi_rsdp_physical(void);
+
 void acpi_print(void);
 
 #endif
