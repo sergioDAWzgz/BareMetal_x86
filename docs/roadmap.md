@@ -145,10 +145,10 @@ open until the board itself says which one it uses.
       the table instead of assuming LBA 0; the gate boots that single file on the
       BIOS, q35 and UEFI paths
 - [x] write `build/disk.img` to a SATA or mSATA disk and boot the JNF3A from it
-- [x] survive the spurious IRQ7 that the first real boot raised after the
-      breakpoint demo: the 8259 reports "nothing to deliver" as vector 39, and the
-      kernel now tells it apart by reading the in-service register, masks any other
-      unclaimed line and keeps running instead of halting
+- [ ] re-test the board after the spurious IRQ7 fix: the 8259 reports "nothing to
+      deliver" as vector 39, the kernel now tells it apart by reading the in-service
+      register and masks any other unclaimed line, and the gate raises the vector on
+      every path, but the board has not run the fixed image yet
 - [ ] confirm BIOS settings: legacy vs UEFI boot, SATA mode, COM1 transmission mode
 - [ ] confirm the serial cable pinout for the internal COM headers
 - [ ] document the recovery path for a machine that fails to boot
