@@ -60,6 +60,16 @@ static void fault_demo(void)
     console_write("exc: resumed after divide error\n");
 }
 
+/* Vector 39 is IRQ7, the vector an 8259 reports when it has nothing to deliver.
+   Real hardware issues it and QEMU does not, so the gate raises it explicitly:
+   the board halted here before the handler learned to tell a spurious interrupt
+   from a real one. */
+static void irq_self_test(void)
+{
+    __asm__ volatile("int $39");
+    console_write("irq: spurious interrupt self-test passed\n");
+}
+
 static void pmm_demo(void)
 {
     uintptr_t first = pmm_alloc_frame();
@@ -383,6 +393,8 @@ void kmain(void)
     console_write("pit:       ");
     console_dec(timer_ticks_get());
     console_write(" ticks observed\n");
+
+    irq_self_test();
 
     fault_demo();
 

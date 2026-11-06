@@ -102,6 +102,13 @@ common_assertions() {
   grep -q 'user: returned to ring 0'            "$log" \
     || fail "$label: the kernel did not resume after the user process"
   grep -q 'pit: *[0-9]* ticks observed'         "$log" || fail "$label: PIT ticks not observed"
+  grep -q 'irq: spurious interrupt self-test passed' "$log" \
+    || fail "$label: a spurious IRQ7 halted the machine"
+  grep -q 'irq: spurious IRQ7 ignored'          "$log" \
+    || fail "$label: IRQ7 was not recognised as the spurious vector"
+  if grep -q 'irq: masked unhandled irq' "$log"; then
+    fail "$label: a spurious IRQ7 was masked as if it were a real interrupt"
+  fi
   grep -q 'exc: resumed after breakpoint'       "$log" || fail "$label: breakpoint did not resume"
   grep -q 'exc: resumed after divide error'     "$log" || fail "$label: divide error did not resume"
   grep -q 'kbd: scancode translation self-test passed' "$log" || fail "$label: scancode translation is wrong"

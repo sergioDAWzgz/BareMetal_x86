@@ -144,7 +144,11 @@ open until the board itself says which one it uses.
       stage 2, the kernel and the FAT32 volume at LBA 2048, and the kernel follows
       the table instead of assuming LBA 0; the gate boots that single file on the
       BIOS, q35 and UEFI paths
-- [ ] write `build/disk.img` to a SATA or mSATA disk and boot the JNF3A from it
+- [x] write `build/disk.img` to a SATA or mSATA disk and boot the JNF3A from it
+- [x] survive the spurious IRQ7 that the first real boot raised after the
+      breakpoint demo: the 8259 reports "nothing to deliver" as vector 39, and the
+      kernel now tells it apart by reading the in-service register, masks any other
+      unclaimed line and keeps running instead of halting
 - [ ] confirm BIOS settings: legacy vs UEFI boot, SATA mode, COM1 transmission mode
 - [ ] confirm the serial cable pinout for the internal COM headers
 - [ ] document the recovery path for a machine that fails to boot
@@ -152,3 +156,8 @@ open until the board itself says which one it uses.
       a distribution on the disk carrying `libva` and the Intel driver
 - [ ] run `vainfo` on the board and confirm it reports the H.264 decode entrypoint
 - [ ] play 1080p H.264 and measure the CPU load to prove the block is doing the work
+
+The first boot on the board used the UEFI path and reached the exception demo:
+ACPI found its ten tables, PCI enumerated fifteen devices and the PIT ticked. It
+then halted on vector 39, an interrupt QEMU never raises, so the emulated gate
+could not have caught it. `irq_self_test` now raises that vector on every path.

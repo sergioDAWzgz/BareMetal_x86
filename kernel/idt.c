@@ -13,6 +13,7 @@
 #define IDT_STUB_COUNT 48
 #define IRQ0_VECTOR 32
 #define IRQ1_VECTOR 33
+#define IRQ_SPURIOUS 7
 
 typedef struct __attribute__((packed)) {
     uint16_t offset_low;
@@ -36,6 +37,7 @@ extern void divide_error_probe_resume(void);
 static idt_entry_t idt[IDT_VECTOR_COUNT];
 static idt_pointer_t idt_pointer;
 static volatile int expect_fault;
+static int spurious_seen;
 
 static const char *const exception_names[32] = {
     "#DE divide error",        "#DB debug",              "NMI",
@@ -103,26 +105,52 @@ void exception_expect_fault(void)
     expect_fault = 1;
 }
 
+/* Hardware IRQs with no driver are not fatal. The 8259 reports an interrupt it
+   cannot identify as vector 39 (IRQ7) and sets no in-service bit; that one gets
+   no EOI, because acknowledging it would close an interrupt that is still
+   pending on another line. Any other unclaimed line is masked before its EOI, so
+   a level-triggered device cannot fire again the moment the EOI lands. */
+static void unhandled_irq(unsigned int vector)
+{
+    unsigned int irq = vector - IRQ0_VECTOR;
+
+    if (irq == IRQ_SPURIOUS && (pic_isr() & (1u << IRQ_SPURIOUS)) == 0) {
+        if (!spurious_seen) {
+            spurious_seen = 1;
+            console_write("irq: spurious IRQ7 ignored\n");
+        }
+        return;
+    }
+
+    pic_mask((uint8_t)irq);
+    pic_eoi((uint8_t)irq);
+    console_write("irq: masked unhandled irq ");
+    console_dec(irq);
+    console_write("\n");
+}
+
 void exception_dispatch(registers_t *frame)
 {
-    if (frame->vector == IRQ0_VECTOR) {
-        timer_handle();
+    unsigned int vector;
+
+    if (frame->vector >= IRQ0_VECTOR) {
+        if (frame->vector == IRQ0_VECTOR) {
+            timer_handle();
+            return;
+        }
+        if (frame->vector == IRQ1_VECTOR) {
+            keyboard_handle();
+            return;
+        }
+        unhandled_irq((unsigned int)frame->vector);
         return;
     }
 
-    if (frame->vector == IRQ1_VECTOR) {
-        keyboard_handle();
-        return;
-    }
-
+    vector = (unsigned int)frame->vector;
     console_write("\nexc: ");
-    if (frame->vector < 32) {
-        console_write(exception_names[frame->vector]);
-    } else {
-        console_write("unexpected interrupt");
-    }
+    console_write(exception_names[vector]);
     console_write(" vector=");
-    console_dec(frame->vector);
+    console_dec(vector);
     console_write(" error=");
     console_hex64(frame->error);
     console_write(" rip=");
@@ -131,7 +159,7 @@ void exception_dispatch(registers_t *frame)
 
     if (expect_fault) {
         expect_fault = 0;
-        if (frame->vector == 0) {
+        if (vector == 0) {
             /* The probe divides by zero; resume after the faulting instruction. */
             frame->rip = (uint64_t)(uintptr_t)divide_error_probe_resume;
         }

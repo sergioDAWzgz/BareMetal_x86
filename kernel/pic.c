@@ -59,6 +59,23 @@ void pic_unmask(uint8_t irq)
     outb(port, (uint8_t)(inb(port) & ~(1u << line)));
 }
 
+void pic_mask(uint8_t irq)
+{
+    uint16_t port = irq < 8 ? PIC1_DATA : PIC2_DATA;
+    uint8_t line = (uint8_t)(irq < 8 ? irq : irq - 8);
+
+    outb(port, (uint8_t)(inb(port) | (1u << line)));
+}
+
+/* Reads the master in-service register through OCW3. The 8259 raises IRQ7 and
+   sets no in-service bit when it has nothing to deliver, which is exactly how a
+   spurious interrupt is told apart from a real one. */
+uint8_t pic_isr(void)
+{
+    outb(PIC1_COMMAND, 0x0B);  /* OCW3: select the in-service register */
+    return inb(PIC1_COMMAND);
+}
+
 void timer_handle(void)
 {
     timer_ticks++;
