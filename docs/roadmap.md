@@ -149,6 +149,10 @@ open until the board itself says which one it uses.
       deliver" as vector 39, the kernel now tells it apart by reading the in-service
       register and masks any other unclaimed line, and the gate raises the vector on
       every path, but the board has not run the fixed image yet
+- [x] read typed input from COM1 as well as the 8042, so bring-up does not depend
+      on a PS/2 keyboard the board does not list; the UART loopback self-test runs
+      on every gate path
+- [ ] confirm on the board that typing into COM1 reaches the echo loop
 - [ ] confirm BIOS settings: legacy vs UEFI boot, SATA mode, COM1 transmission mode
 - [ ] confirm the serial cable pinout for the internal COM headers
 - [ ] document the recovery path for a machine that fails to boot
@@ -160,4 +164,8 @@ open until the board itself says which one it uses.
 The first boot on the board used the UEFI path and reached the exception demo:
 ACPI found its ten tables, PCI enumerated fifteen devices and the PIT ticked. It
 then halted on vector 39, an interrupt QEMU never raises, so the emulated gate
-could not have caught it. `irq_self_test` now raises that vector on every path.
+could not have caught it. The second boot confirmed the fix: the spurious line was
+ignored, both exceptions resumed, AHCI found the volume on port 1 and the payload
+jumped. A USB keyboard produced nothing, because the firmware stops emulating it
+at `ExitBootServices` and the kernel has no USB stack; the echo loop now reads
+COM1 as well, and `irq_self_test` raises vector 39 on every path.

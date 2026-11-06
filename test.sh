@@ -112,6 +112,7 @@ common_assertions() {
   grep -q 'exc: resumed after breakpoint'       "$log" || fail "$label: breakpoint did not resume"
   grep -q 'exc: resumed after divide error'     "$log" || fail "$label: divide error did not resume"
   grep -q 'kbd: scancode translation self-test passed' "$log" || fail "$label: scancode translation is wrong"
+  grep -q 'serial: loopback self-test passed'   "$log" || fail "$label: the UART receive path failed its loopback test"
   grep -q 'kbd: controller ready'               "$log" || fail "$label: 8042 controller was not initialised"
   grep -q 'Phase 3 complete'                    "$log" || fail "$label: phase 3 did not complete"
   grep -q 'mbr: partition table self-test passed' "$log" \

@@ -4,15 +4,16 @@ A bare-metal x86 system built from scratch for the Jetway JNF3A (Intel Bay Trail
 Celeron N2807 / N2930) 3.5" single board computer: own bootloader, own kernel, and
 eventually video playback on real hardware.
 
-Current state: **phase 5** - 64-bit long mode, higher-half kernel, E820 memory map,
+Current state: **phase 6** - real board bring-up; the single disk image boots on
+the JNF3A. 64-bit long mode, higher-half kernel, E820 memory map,
 frame allocator, PIC/PIT, exception diagnostics, PCI enumeration, ACPI table
 discovery (RSDP, MADT, MCFG), a 1024x768x32 framebuffer driven through VBE (BIOS)
-or GOP (UEFI) with an 8x8 text console on it, a PS/2 keyboard with a line echo
-loop, an AHCI driver, a read-only FAT32 volume, an ELF64 loader, and a user program
-that runs in ring 3 and prints through a syscall. Both boot paths run the same
-kernel. The boot chain now ends by handing the machine to a Linux kernel built from
-pinned source, which mounts a gzip initramfs and runs `/init` from it. See
-`docs/roadmap.md`.
+or GOP (UEFI) with an 8x8 text console on it, a PS/2 keyboard or COM1 with a line
+echo loop, an AHCI driver, a read-only FAT32 volume, an ELF64 loader, and a user
+program that runs in ring 3 and prints through a syscall. Both boot paths run the
+same kernel. The boot chain now ends by handing the machine to a Linux kernel
+built from pinned source, which mounts a gzip initramfs and runs `/init` from it.
+See `docs/roadmap.md`.
 
 ## Requirements
 
@@ -81,8 +82,9 @@ There are two boot paths to the same kernel binary.
    enables interrupts, prints the memory map, initialises the frame allocator,
    probes the framebuffer, switches to an 8x8 text console drawn straight onto it,
    walks the ACPI tables, enumerates PCI, runs the storage path from AHCI to a
-   ring-3 process, then initialises the 8042 keyboard and echoes typed lines.
-   After the echo loop yields it hands the machine to the Linux payload.
+   ring-3 process, then initialises the 8042 keyboard and echoes typed lines read
+   from the keyboard or COM1. After the echo loop yields it hands the machine to
+   the Linux payload.
 
 **UEFI** (`boot/uefi/loader.c`, `BOOTX64.EFI` on the FAT32 volume):
 
@@ -113,6 +115,15 @@ The FAT32 partition is also the UEFI system partition: it holds
 `\EFI\BOOT\BOOTX64.EFI` and `\EFI\BOOT\KERNEL.BIN`, and OVMF finds them by path,
 not by partition type. No partition entry is marked active on purpose, so a BIOS
 runs the MBR code instead of the volume's boot sector.
+
+### Input
+
+The kernel reads typed lines from two places: the 8042 keyboard through IRQ1 and
+COM1 through a polled UART. The second is the practical one on the board: a USB
+keyboard is owned by the firmware until `ExitBootServices` and by Linux after the
+handoff, and the kernel has no USB stack of its own. The UART's loopback path is
+exercised by a self-test on every gate run; typing into a terminal is the board
+check.
 
 ### How ACPI is found
 

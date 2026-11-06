@@ -32,6 +32,89 @@ static void serial_putc(char c)
     outb(COM1_PORT, (uint8_t)c);
 }
 
+#define UART_LSR_DATA_READY 0x01
+
+int serial_getchar(void)
+{
+    uint8_t status = inb(COM1_PORT + 5);
+    uint8_t value;
+
+    /* An absent or disabled UART leaves the bus floating at 0xFF, where the
+       data-ready bit is set forever. Treating that as input would feed the line
+       editor phantom bytes that reset its idle timer and keep the payload from
+       booting. */
+    if (status == 0xFF) {
+        return -1;
+    }
+    if ((status & UART_LSR_DATA_READY) == 0) {
+        return -1;
+    }
+    value = inb(COM1_PORT);
+
+    /* Terminals are line oriented the way a VT100 was: CR for Enter and DEL for
+       Backspace. The line editor speaks the codes the PS/2 map produces, so the
+       transport translates instead of teaching every caller two encodings. */
+    if (value == '\r') {
+        return '\n';
+    }
+    if (value == 0x7F) {
+        return '\b';
+    }
+    return (int)value;
+}
+
+/* Waits for one received byte, then reads it through serial_getchar. Returns the
+   byte, or -1 if nothing arrived before the spin budget ran out. */
+static int serial_wait_getchar(void)
+{
+    unsigned int spin;
+
+    for (spin = 0; spin < 100000; spin++) {
+        int value = serial_getchar();
+
+        if (value >= 0) {
+            return value;
+        }
+    }
+    return -1;
+}
+
+int serial_self_test(void)
+{
+    uint8_t mcr;
+    unsigned int spin;
+    int ok = 1;
+
+    /* Discard anything a terminal sent before the test, so the loopback bytes
+       are the only ones in the receive FIFO. The loop is bounded because an
+       absent UART reports data-ready forever. */
+    for (spin = 0; spin < 64; spin++) {
+        if ((inb(COM1_PORT + 5) & UART_LSR_DATA_READY) == 0) {
+            break;
+        }
+        (void)inb(COM1_PORT);
+    }
+
+    mcr = inb(COM1_PORT + 4);
+    outb(COM1_PORT + 4, (uint8_t)(mcr | 0x10)); /* loopback: TX feeds RX */
+
+    outb(COM1_PORT, 'B');
+    if (serial_wait_getchar() != 'B') {
+        ok = 0;
+    }
+    outb(COM1_PORT, '\r');
+    if (serial_wait_getchar() != '\n') {
+        ok = 0;
+    }
+    outb(COM1_PORT, 0x7F);
+    if (serial_wait_getchar() != '\b') {
+        ok = 0;
+    }
+
+    outb(COM1_PORT + 4, mcr);
+    return ok ? 0 : -1;
+}
+
 static uint16_t vga_cell(char c)
 {
     return (uint16_t)((uint16_t)VGA_ATTR << 8) | (uint8_t)c;
