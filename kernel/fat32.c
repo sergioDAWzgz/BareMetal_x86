@@ -3,6 +3,7 @@
 #include "ahci.h"
 #include "console.h"
 #include "lib.h"
+#include "mbr.h"
 
 /* Boot sector field offsets. Only the fields this driver needs are named; the
    ones that describe the geometry it refuses are read straight from the image. */
@@ -39,6 +40,7 @@
 
 typedef struct {
     uint32_t port;
+    uint32_t base_lba;
     uint32_t sectors_per_cluster;
     uint32_t reserved_sectors;
     uint32_t fat_sectors;
@@ -51,6 +53,7 @@ typedef struct {
 
 static fat32_volume_t volume;
 static uint8_t sector[FAT32_SECTOR_SIZE];
+static uint8_t partition_sector[FAT32_SECTOR_SIZE];
 static const char *failure = "none";
 
 static uint16_t read16(const uint8_t *data)
@@ -72,8 +75,10 @@ static int is_power_of_two(uint32_t value)
 }
 
 /* A candidate has to describe a usable FAT32 geometry. Anything that fails here
-   is not a volume this driver understands, which matters because one of the
-   disks on the bus is the raw boot image and one is an ESP. */
+   is not a volume this driver understands, which matters because LBA 0 of the
+   disk may be the partition table and because a partition may hold something
+   else entirely. The label check is what keeps this from mounting the wrong
+   fat volume on a machine that has several. */
 static int volume_ok(const uint8_t *boot)
 {
     uint32_t bytes_per_sector;
@@ -147,9 +152,10 @@ static int volume_ok(const uint8_t *boot)
     return 1;
 }
 
-static int mount_at(uint32_t port, const uint8_t *boot)
+static int mount_at(uint32_t port, const uint8_t *boot, uint32_t base_lba)
 {
     volume.port = port;
+    volume.base_lba = base_lba;
     volume.sectors_per_cluster = boot[BPB_SECTORS_PER_CLUSTER];
     volume.reserved_sectors = read16(boot + BPB_RESERVED_SECTORS);
     volume.fat_sectors = read32(boot + BPB_SECTORS_PER_FAT_32);
@@ -165,7 +171,10 @@ static int mount_at(uint32_t port, const uint8_t *boot)
 
 int fat32_mount(void)
 {
+    mbr_partition_t entries[MBR_MAX_PARTITIONS];
+    uint32_t count;
     uint32_t index;
+    uint32_t slot;
 
     volume.mounted = 0;
     failure = "no fat32 volume labelled BMXDATA";
@@ -174,8 +183,31 @@ int fat32_mount(void)
         if (ahci_read(index, 0, 1, sector) != 0) {
             continue;
         }
+
+        /* A disk that begins with the filesystem itself, which is how the data
+           image used to be attached. */
         if (volume_ok(sector)) {
-            return mount_at(index, sector);
+            return mount_at(index, sector, 0);
+        }
+
+        /* Otherwise LBA 0 is the boot record of a partitioned disk and the
+           volume starts at one of its entries. Every candidate is decoded
+           before any is read, because reading a boot sector overwrites the
+           buffer the table is still in. */
+        count = 0;
+        for (slot = 0; slot < MBR_MAX_PARTITIONS; slot++) {
+            if (mbr_partition(sector, slot, &entries[count]) == 0) {
+                count++;
+            }
+        }
+        for (slot = 0; slot < count; slot++) {
+            if (ahci_read(index, entries[slot].start_lba, 1,
+                          partition_sector) != 0) {
+                continue;
+            }
+            if (volume_ok(partition_sector)) {
+                return mount_at(index, partition_sector, entries[slot].start_lba);
+            }
         }
     }
     return -1;
@@ -183,7 +215,7 @@ int fat32_mount(void)
 
 static uint32_t cluster_lba(uint32_t cluster)
 {
-    return volume.first_data_sector +
+    return volume.base_lba + volume.first_data_sector +
            (cluster - FIRST_DATA_CLUSTER) * volume.sectors_per_cluster;
 }
 
@@ -192,7 +224,8 @@ static uint32_t cluster_lba(uint32_t cluster)
 static uint32_t next_cluster(uint32_t cluster)
 {
     uint32_t fat_offset = cluster * 4;
-    uint32_t fat_sector = volume.reserved_sectors + fat_offset / FAT32_SECTOR_SIZE;
+    uint32_t fat_sector = volume.base_lba + volume.reserved_sectors +
+                          fat_offset / FAT32_SECTOR_SIZE;
     uint32_t entry;
 
     if (ahci_read(volume.port, fat_sector, 1, sector) != 0) {
@@ -417,6 +450,8 @@ void fat32_print(void)
     console_dec(volume.total_sectors);
     console_write(" clusters ");
     console_dec(volume.cluster_count);
+    console_write(" base ");
+    console_dec(volume.base_lba);
     console_write("\n");
 }
 

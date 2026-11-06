@@ -13,6 +13,7 @@
 #include "keyboard.h"
 #include "lib.h"
 #include "linuxboot.h"
+#include "mbr.h"
 #include "memory.h"
 #include "pci.h"
 #include "pic.h"
@@ -388,6 +389,16 @@ void kmain(void)
     keyboard_start();
 
     console_write("\nPhase 3 complete.\n");
+
+    /* Pure and disk-free on purpose: a broken partition table has to be named
+       here, not discovered later as a volume that cannot be mounted. */
+    if (mbr_self_test() != 0) {
+        console_write("mbr: partition table self-test failed: ");
+        console_write(mbr_error());
+        console_write("\n");
+    } else {
+        console_write("mbr: partition table self-test passed\n");
+    }
 
     phase4();
     console_write("Phase 4 complete.\n");

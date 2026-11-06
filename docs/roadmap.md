@@ -79,10 +79,11 @@ exercised instead of skipped.
 
 Gate: a user program loaded from disk prints through a syscall.
 
-The data volume is built by `build.sh` as `build/data.img` and the kernel picks it
-by its `BMXDATA` label, so the same gate runs on the `pc` machine and on q35, where
-the boot disk and the data disk share one controller. The gate asserts the mounted
-geometry, the file content read back, the staged image, the loaded entry point, a
+The data volume is built by `build.sh` as a FAT32 partition inside
+`build/disk.img` and the kernel picks it by its `BMXDATA` label, so the same gate
+runs on the `pc` machine and on q35, where the boot record and the volume share
+one controller and one disk. The gate asserts the mounted geometry and its base
+LBA, the file content read back, the staged image, the loaded entry point, a
 syscall observed with `cs = 0x1b`, the program's own output and its exit status, and
 that no mapping outside the user window is reachable from ring 3.
 
@@ -134,11 +135,20 @@ recorded in `odd/tasks/phase5-linux-payload.md`.
 
 ## Phase 6 - real board bring-up
 
-- [ ] write the image to a USB stick and boot the JNF3A from it
+The board reaches storage through AHCI, so the boot medium is a SATA disk or an
+mSATA module, not a USB stick: the kernel reads the payload through AHCI and has no
+USB driver at all. The image carries both boot paths, so the firmware choice stays
+open until the board itself says which one it uses.
+
+- [x] one bootable image with a partition table: `build/disk.img` holds the MBR,
+      stage 2, the kernel and the FAT32 volume at LBA 2048, and the kernel follows
+      the table instead of assuming LBA 0; the gate boots that single file on the
+      BIOS, q35 and UEFI paths
+- [ ] write `build/disk.img` to a SATA or mSATA disk and boot the JNF3A from it
 - [ ] confirm BIOS settings: legacy vs UEFI boot, SATA mode, COM1 transmission mode
 - [ ] confirm the serial cable pinout for the internal COM headers
 - [ ] document the recovery path for a machine that fails to boot
 - [ ] provide the real root filesystem, since the initramfs only proves the handoff:
-      a distribution on the stick carrying `libva` and the Intel driver
+      a distribution on the disk carrying `libva` and the Intel driver
 - [ ] run `vainfo` on the board and confirm it reports the H.264 decode entrypoint
 - [ ] play 1080p H.264 and measure the CPU load to prove the block is doing the work

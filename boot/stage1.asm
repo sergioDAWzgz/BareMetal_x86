@@ -12,6 +12,7 @@ STAGE2_LBA      equ 1
 STAGE2_SECTORS  equ 16              ; 8 KiB, must match stage2 padding
 STAGE2_SEG      equ 0x07E0          ; physical 0x7E00
 BOOT_DRIVE_ADDR equ 0x0500
+MBR_TABLE_SIZE  equ 4 * 16          ; four partition entries, 446..509
 
 start:
     cli
@@ -71,6 +72,14 @@ dap:
     dw 0x0000
     dw STAGE2_SEG
     dq STAGE2_LBA
+
+; The partition table lives at 446..509 and build.sh writes it, because only the
+; build knows where the FAT32 volume starts. Reserving the area here keeps the
+; boot sector owned by one file: this one decides the size, the build the
+; contents. No slot is marked active on purpose -- the boot code is what boots,
+; and an active flag would invite a BIOS to run the volume's boot sector instead.
+partition_table:
+times MBR_TABLE_SIZE db 0
 
 times 510-($-$$) db 0
 dw 0xAA55

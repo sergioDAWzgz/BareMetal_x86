@@ -39,8 +39,8 @@ link time rather than at the include.
 ## Build, test, run
 
 ```sh
-./build.sh        # writes build/baremetal.img, build/data.img and the UEFI ESP
-./test.sh         # boots both paths in QEMU and asserts the serial output
+./build.sh        # writes build/disk.img, the one image every path boots
+./test.sh         # boots all three paths in QEMU and asserts the serial output
 ./run.sh          # interactive boot, serial on stdout (BIOS path)
 ./run.sh --uefi   # same, through OVMF on the EFI path
 ```
@@ -84,7 +84,7 @@ There are two boot paths to the same kernel binary.
    ring-3 process, then initialises the 8042 keyboard and echoes typed lines.
    After the echo loop yields it hands the machine to the Linux payload.
 
-**UEFI** (`boot/uefi/loader.c`, `BOOTX64.EFI` on an ESP):
+**UEFI** (`boot/uefi/loader.c`, `BOOTX64.EFI` on the FAT32 volume):
 
 1. runs from `\EFI\BOOT\BOOTX64.EFI`, reports on COM1, picks a 1024x768 GOP mode and
    publishes the same boot info block at `0x0C00`
@@ -98,16 +98,21 @@ the pages it handed out for `EfiLoaderData`, which silently overwrites page tabl
 built earlier. The post-exit phase also runs on its own stack, so it only reads
 globals and constants.
 
-Disk layout of `build/baremetal.img`:
+The build writes one image, `build/disk.img`, and every path boots it. The board
+has a single SATA port, so the boot record, the loader, the kernel and the
+filesystem the kernel reads share one sector space:
 
 | LBA | Content |
 | --- | --- |
-| 0 | stage 1, MBR |
+| 0 | stage 1, MBR with the partition table |
 | 1-16 | stage 2 |
-| 17+ | kernel binary (up to 64 KiB) |
+| 17-144 | kernel binary (up to 64 KiB) |
+| 2048+ | FAT32 volume `BMXDATA`, 64 MiB |
 
-`build/esp.img` is a 16 MiB FAT image holding `\EFI\BOOT\BOOTX64.EFI` and
-`\EFI\BOOT\KERNEL.BIN`.
+The FAT32 partition is also the UEFI system partition: it holds
+`\EFI\BOOT\BOOTX64.EFI` and `\EFI\BOOT\KERNEL.BIN`, and OVMF finds them by path,
+not by partition type. No partition entry is marked active on purpose, so a BIOS
+runs the MBR code instead of the volume's boot sector.
 
 ### How ACPI is found
 
@@ -140,13 +145,15 @@ On top of that sits a read-only FAT32 driver: it parses the BPB, rejects a volum
 whose geometry is inconsistent, walks the FAT chain and the root directory, and
 reads a file by its 8.3 name. It never writes a sector. The volume is selected by
 content - a consistent FAT32 volume carrying the label `BMXDATA` - and never by
-controller or port position, because q35 exposes the raw boot disk on the same
-controller as the data disk.
+controller or port position. When LBA 0 is an MBR instead of a boot sector, the
+driver follows each entry the table names, which is how the single image lets the
+kernel find the volume at LBA 2048.
 
-`build/data.img` is that volume: 64 MiB, FAT32, built by `build.sh` with `mformat`
-and filled with `HELLO.TXT`, the user program, the compressed Linux kernel and the
-initramfs. `test.sh` attaches it to a dedicated `ich9-ahci` controller on the `pc`
-machine and to the built-in AHCI controller on q35.
+`build/disk.img` carries that volume: 64 MiB of FAT32, built by `build.sh` with
+`mformat` and filled with `HELLO.TXT`, the user program, the compressed Linux
+kernel, the initramfs and the UEFI loader. `test.sh` attaches the same file on all
+three paths: on an added `ich9-ahci` controller for `pc`, and on the built-in AHCI
+controller for q35.
 
 A file is staged into RAM first (`kernel/ramdisk.c`), then `kernel/elf.c` maps its
 `PT_LOAD` segments into user pages. User space lives in `PML4[1]`, a subtree no
@@ -237,17 +244,23 @@ device, so the roadmap line "`vainfo` reports the H.264 decode entrypoint" is a
 phase 6 hardware assertion. Phase 5 is done when the payload reaches a userspace
 process on the BIOS, q35 and UEFI paths, and nothing here claims QEMU decoded video.
 
-## Writing to a USB stick
+## Writing the image to a disk
 
-The BIOS image is a hard disk image and boots in legacy/CSM mode. Writing it
-destroys the target device:
+`build/disk.img` is a complete disk: the MBR, the loader, the kernel and a 64 MiB
+FAT32 volume that serves both boot paths. Writing it destroys the target device:
 
 ```sh
-sudo dd if=build/baremetal.img of=/dev/sdX bs=1M conv=fsync
+sudo dd if=build/disk.img of=/dev/sdX bs=1M conv=fsync
 ```
 
-For the UEFI path, write `build/esp.img` to the stick and boot with UEFI enabled
-and CSM off.
+The board has one SATA II port and one mSATA slot sharing the full-size mPCIe
+connector, so either medium works. A USB stick is not a supported boot medium: the
+kernel reads the volume through AHCI, and a pendrive hangs off EHCI or xHCI, which
+the kernel does not drive. On Windows, write the same file with a raw disk imager;
+it is not an ISO.
+
+The image boots on the BIOS path directly and on the UEFI path through the same
+FAT32 volume, so a board can be tried in either mode without rebuilding anything.
 
 ## Documentation
 

@@ -2,7 +2,7 @@
 # Builds the BareMetal_x86 boot artefacts.
 #
 # Requires: nasm, gcc with 64-bit freestanding support, binutils, coreutils.
-# Optional: gnu-efi and mtools for the UEFI loader and its ESP image.
+# Optional: gnu-efi for the UEFI loader and mtools for the disk image.
 # Runs on Linux or inside WSL; the build host does not need to be the target.
 set -euo pipefail
 
@@ -30,6 +30,30 @@ CFLAGS=(
 )
 
 step() { printf '\n==> %s\n' "$1"; }
+
+# Writes one 32-bit value to stdout as four little-endian bytes. The byte values
+# are formatted as octal text first because command substitution cannot carry a
+# NUL byte, and a partition start or length is mostly zero bytes.
+le32() {
+  local value=$1
+  printf "\\$(printf '%03o' $((  value        & 0xFF)))"
+  printf "\\$(printf '%03o' $((( value >>  8) & 0xFF)))"
+  printf "\\$(printf '%03o' $((( value >> 16) & 0xFF)))"
+  printf "\\$(printf '%03o' $((( value >> 24) & 0xFF)))"
+}
+
+# Emits one 16-byte MBR partition entry. The CHS triples are zeroed because every
+# reader in this project addresses by LBA, and a second addressing scheme that
+# disagrees with the first is only a way to boot the wrong sector.
+mbr_entry() {
+  local type=$1 start=$2 sectors=$3
+  printf '\000'                              # status: no partition is active
+  printf '\000\000\000'                      # first CHS address, unused
+  printf "\\$(printf '%03o' "$type")"
+  printf '\000\000\000'                      # last CHS address, unused
+  le32 "$start"
+  le32 "$sectors"
+}
 
 step "clean"
 rm -rf "$BUILD_DIR"
@@ -77,11 +101,6 @@ if [ "$stage2_size" -ne $((STAGE2_SECTORS * 512)) ]; then
   exit 1
 fi
 
-step "assemble BIOS disk image"
-cat "$BUILD_DIR/stage1.bin" "$BUILD_DIR/stage2.bin" "$BUILD_DIR/kernel.bin" \
-  > "$BUILD_DIR/baremetal.img"
-truncate -s 1M "$BUILD_DIR/baremetal.img"
-
 if [ -f /usr/lib/crt0-efi-x86_64.o ] && [ -d /usr/include/efi ]; then
   step "build UEFI loader"
   mkdir -p "$BUILD_DIR/uefi"
@@ -103,18 +122,6 @@ if [ -f /usr/lib/crt0-efi-x86_64.o ] && [ -d /usr/include/efi ]; then
     "$BUILD_DIR/uefi/loader.so" "$BUILD_DIR/uefi/BOOTX64.EFI"
 else
   echo "skip: gnu-efi is not installed, UEFI loader not built" >&2
-fi
-
-if [ -f "$BUILD_DIR/uefi/BOOTX64.EFI" ] && command -v "$MFORMAT" >/dev/null 2>&1; then
-  step "build UEFI system partition image"
-  rm -f "$BUILD_DIR/esp.img"
-  "$MFORMAT" -i "$BUILD_DIR/esp.img" -C -T 32768 -h 16 -s 32 ::
-  "$MMD" -i "$BUILD_DIR/esp.img" ::/EFI
-  "$MMD" -i "$BUILD_DIR/esp.img" ::/EFI/BOOT
-  "$MCOPY" -i "$BUILD_DIR/esp.img" "$BUILD_DIR/uefi/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
-  "$MCOPY" -i "$BUILD_DIR/esp.img" "$BUILD_DIR/kernel.bin" ::/EFI/BOOT/KERNEL.BIN
-else
-  echo "skip: mtools or the UEFI loader is missing, ESP image not built" >&2
 fi
 
 # The user program. It is a separate link with its own flags: the kernel is
@@ -319,10 +326,19 @@ cp "$LINUX_TREE/arch/x86/boot/bzImage" "$BUILD_DIR/bzImage"
 # with a known label, so the kernel's read-only driver is checked against an
 # image any other system can inspect, and the label lets the kernel pick the
 # volume by content instead of by controller or port position.
+#
+# The same filesystem is the UEFI system partition: the board has one disk, and
+# one volume is enough for both paths. OVMF locates BOOTX64.EFI by path, not by
+# partition type, and the kernel's FAT32 driver reads the BPB rather than the
+# type byte, so 0x0C serves both. If a firmware ever refuses to boot from a
+# non-0xEF partition, changing the type here is the whole fix.
 step "build data volume"
 DATA_SECTORS=$((64 * 2048))            # 64 MiB: FAT32 wants more clusters than 16-bit FAT can address
+BOOT_SECTORS=2048                      # the FAT32 partition starts here, leaving room for the boot code
 DATA_IMAGE="$BUILD_DIR/data.img"
-if ! command -v "$MFORMAT" >/dev/null 2>&1 || ! command -v "$MCOPY" >/dev/null 2>&1; then
+if ! command -v "$MFORMAT" >/dev/null 2>&1 || \
+   ! command -v "$MMD" >/dev/null 2>&1 || \
+   ! command -v "$MCOPY" >/dev/null 2>&1; then
   echo "error: mtools is required to build the data volume" >&2
   exit 1
 fi
@@ -332,16 +348,46 @@ rm -f "$DATA_IMAGE"
 "$MCOPY" -i "$DATA_IMAGE" "$BUILD_DIR/USER.ELF" ::/USER.ELF
 "$MCOPY" -i "$DATA_IMAGE" "$BUILD_DIR/bzImage" ::/LINUX.BIN
 "$MCOPY" -i "$DATA_IMAGE" "$BUILD_DIR/INITRD" ::/INITRD.BIN
+if [ -f "$BUILD_DIR/uefi/BOOTX64.EFI" ]; then
+  "$MMD" -i "$DATA_IMAGE" ::/EFI
+  "$MMD" -i "$DATA_IMAGE" ::/EFI/BOOT
+  "$MCOPY" -i "$DATA_IMAGE" "$BUILD_DIR/uefi/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
+  "$MCOPY" -i "$DATA_IMAGE" "$BUILD_DIR/kernel.bin" ::/EFI/BOOT/KERNEL.BIN
+else
+  echo "skip: the UEFI loader is missing, the volume has no EFI payload" >&2
+fi
+
+# One image for one disk. The board has a single SATA port, so the boot record,
+# stage 2, the kernel and the filesystem the kernel reads all live in the same
+# sector space. The gate attaches this file alone on every path, which is the
+# same layout a real board sees.
+step "assemble the disk image"
+DISK_IMAGE="$BUILD_DIR/disk.img"
+rm -f "$DISK_IMAGE"
+truncate -s $(( (BOOT_SECTORS + DATA_SECTORS) * 512 )) "$DISK_IMAGE"
+
+dd if="$BUILD_DIR/stage1.bin" of="$DISK_IMAGE" bs=512 seek=0 \
+   conv=notrunc status=none
+dd if="$BUILD_DIR/stage2.bin" of="$DISK_IMAGE" bs=512 seek=1 \
+   conv=notrunc status=none
+dd if="$BUILD_DIR/kernel.bin" of="$DISK_IMAGE" bs=512 \
+   seek=$((1 + STAGE2_SECTORS)) conv=notrunc status=none
+dd if="$DATA_IMAGE" of="$DISK_IMAGE" bs=512 seek="$BOOT_SECTORS" \
+   conv=notrunc status=none
+
+# The partition table is written into the boot sector, which build.sh owns: only
+# the build knows where the volume starts. Entry 1 describes the FAT32 volume;
+# the other three stay empty. No slot is active on purpose, so a BIOS runs this
+# boot code instead of the volume's boot sector.
+mbr_entry 0x0C "$BOOT_SECTORS" "$DATA_SECTORS" > "$BUILD_DIR/mbr-entry.bin"
+dd if="$BUILD_DIR/mbr-entry.bin" of="$DISK_IMAGE" bs=1 seek=446 \
+   conv=notrunc status=none
 
 printf '\nkernel.bin    %s bytes (limit %s)\n' "$kernel_size" "$KERNEL_LIMIT"
 printf 'init          %s bytes\n' "$(stat -c %s "$BUILD_DIR/init")"
 printf 'INITRD        %s bytes\n' "$(stat -c %s "$BUILD_DIR/INITRD")"
 printf 'bzImage       %s bytes\n' "$(stat -c %s "$BUILD_DIR/bzImage")"
-printf 'baremetal.img %s bytes\n' "$(stat -c %s "$BUILD_DIR/baremetal.img")"
-printf 'data.img      %s bytes\n' "$(stat -c %s "$DATA_IMAGE")"
+printf 'disk.img      %s bytes\n' "$(stat -c %s "$DISK_IMAGE")"
 if [ -f "$BUILD_DIR/uefi/BOOTX64.EFI" ]; then
   printf 'BOOTX64.EFI   %s bytes\n' "$(stat -c %s "$BUILD_DIR/uefi/BOOTX64.EFI")"
-fi
-if [ -f "$BUILD_DIR/esp.img" ]; then
-  printf 'esp.img       %s bytes\n' "$(stat -c %s "$BUILD_DIR/esp.img")"
 fi
