@@ -74,7 +74,9 @@ Delivery strategy: work-unit commits on `main`, one reviewable slice per task,
   `docs/roadmap.md` says exactly that instead of implying QEMU proved video.
 - **S6** - documentation.
   `README.md` and `docs/roadmap.md` describe the payload, the pinned kernel, the
-  new build cache and the caching rule, in English.
+  new build cache and the caching rule, in English, and say plainly that the
+  initramfs proves the handoff and is not the root filesystem the board will run.
+  The userspace stack (busybox, libva, `vainfo`) is a phase 6 item; see L11.
 
 Exact strings the gate asserts (they are the contract):
 
@@ -112,9 +114,8 @@ Linux because the loop yields on its own after `5 * TIMER_HZ`.
 - **T2** - initramfs. `initramfs/init.asm` and the cpio step in `build.sh`, the
   ramdisk handoff, `rdinit=/init`, `type_of_loader`. Covers S3, S4. Route: inline.
   Closed with the gate green, see L10.
-- **T3** - userspace stack and documentation. Busybox, libva and `vainfo` in the
-  initramfs, `README.md`, `docs/roadmap.md`, and the S5 caveat. Covers S5, S6.
-  Route: inline.
+- **T3** - documentation. `README.md`, `docs/roadmap.md`, and the S5 caveat with
+  the phase 6 userspace items. Covers S5, S6. Route: inline. Closed, see L11.
 
 ## Log
 
@@ -364,5 +365,33 @@ Both defects are the same lesson: on this boot path the kernel's silence is not
 evidence of success. A missing `type_of_loader` and a missing device node both
 show up as "no initramfs", and the only line that says so plainly is the
 `RAMDISK:` one that the failing run never printed.
+
+### L11 (user decision, 2026-11-06)
+
+> Cerrar con documentación (Recomendado)
+
+T3 as first written listed Busybox, libva and `vainfo` in the initramfs, which
+contradicts S5 in the same document: S5 closes phase 5 when the payload reaches a
+userspace process on the three QEMU paths and moves the `vainfo` line to phase 6.
+The contradiction was put to the user with the cost of each option, because it is a
+scope decision rather than an editing detail. The answer was documentation.
+
+The reasoning, recorded so it is not relitigated later: QEMU cannot present a Gen7
+GPU, so the only QEMU-verifiable claim about a busybox+libva initramfs is "the
+binaries start". Meanwhile the initramfs exists to prove the handoff; on the board
+the real system is a distribution with `libva` installed properly. A cross-compiled
+busybox and VA-API stack inside the phase 5 image would be scaffolding the product
+never uses, and three more pinned tarballs in `build.sh` to maintain.
+
+T3 is therefore S5 and S6 only. `docs/roadmap.md` now closes phase 5 at userspace on
+the three paths and carries the userspace stack, the `vainfo` assertion, the real
+root filesystem and a 1080p playback measurement as phase 6 items. `README.md`
+gained "The Linux payload", which documents the pinned source, the off-repository
+build cache and why it exists, the handoff, the two zero-page fields that fail
+silently, the initramfs, the gate strings, and what QEMU cannot prove.
+
+No gate run accompanies this entry: the change touches neither `build.sh` nor any
+C or assembly source, so the artefacts `test.sh` boots are byte-identical to the
+ones that passed in L10.
 
 

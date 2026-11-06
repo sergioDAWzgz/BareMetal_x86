@@ -4,13 +4,15 @@ A bare-metal x86 system built from scratch for the Jetway JNF3A (Intel Bay Trail
 Celeron N2807 / N2930) 3.5" single board computer: own bootloader, own kernel, and
 eventually video playback on real hardware.
 
-Current state: **phase 4** - 64-bit long mode, higher-half kernel, E820 memory map,
+Current state: **phase 5** - 64-bit long mode, higher-half kernel, E820 memory map,
 frame allocator, PIC/PIT, exception diagnostics, PCI enumeration, ACPI table
 discovery (RSDP, MADT, MCFG), a 1024x768x32 framebuffer driven through VBE (BIOS)
 or GOP (UEFI) with an 8x8 text console on it, a PS/2 keyboard with a line echo
 loop, an AHCI driver, a read-only FAT32 volume, an ELF64 loader, and a user program
 that runs in ring 3 and prints through a syscall. Both boot paths run the same
-kernel. See `docs/roadmap.md`.
+kernel. The boot chain now ends by handing the machine to a Linux kernel built from
+pinned source, which mounts a gzip initramfs and runs `/init` from it. See
+`docs/roadmap.md`.
 
 ## Requirements
 
@@ -20,12 +22,19 @@ Build host (Linux, or WSL on Windows):
 - `gcc` (any x86_64 host compiler; no multilib needed)
 - `binutils`, `coreutils`
 - `mtools` (the data volume is built with `mformat`/`mcopy`)
+- `gzip` (the initramfs is compressed with it)
+- `bc`, `flex`, `bison`, `libelf-dev`, `libssl-dev` to build the Linux payload
 - `qemu-system-x86_64` for the phase gate
 - optional, for the UEFI path: `gnu-efi` and `ovmf` for the gate
 
 ```sh
-sudo apt-get install nasm binutils qemu-system-x86 gnu-efi mtools ovmf
+sudo apt-get install nasm binutils qemu-system-x86 gnu-efi mtools ovmf \
+                     gzip bc flex bison libelf-dev libssl-dev
 ```
+
+`build.sh` probes every kernel dependency before it starts. The `libelf` and
+`openssl` probes compile *and link*, because a missing shared library fails at
+link time rather than at the include.
 
 ## Build, test, run
 
@@ -38,6 +47,12 @@ sudo apt-get install nasm binutils qemu-system-x86 gnu-efi mtools ovmf
 
 `run.sh` and `test.sh` need QEMU. `build.sh` alone needs no emulator, and it skips
 the UEFI artefacts with a warning when `gnu-efi` is missing.
+
+`build.sh` also builds the Linux payload, so the first build downloads and compiles
+a kernel and takes a while. After that the build is incremental: the tarball, the
+source tree and the object tree live in a cache and only what changed is rebuilt.
+See "The Linux payload" below for where that cache is and why it is not in the
+repository.
 
 On the BIOS path `test.sh` also drives the keyboard: it boots QEMU with a monitor
 socket and sends `hello` plus Enter through the emulated 8042, then asserts the
@@ -67,6 +82,7 @@ There are two boot paths to the same kernel binary.
    probes the framebuffer, switches to an 8x8 text console drawn straight onto it,
    walks the ACPI tables, enumerates PCI, runs the storage path from AHCI to a
    ring-3 process, then initialises the 8042 keyboard and echoes typed lines.
+   After the echo loop yields it hands the machine to the Linux payload.
 
 **UEFI** (`boot/uefi/loader.c`, `BOOTX64.EFI` on an ESP):
 
@@ -128,9 +144,9 @@ controller or port position, because q35 exposes the raw boot disk on the same
 controller as the data disk.
 
 `build/data.img` is that volume: 64 MiB, FAT32, built by `build.sh` with `mformat`
-and filled with `HELLO.TXT` and the user program. `test.sh` attaches it to a
-dedicated `ich9-ahci` controller on the `pc` machine and to the built-in AHCI
-controller on q35.
+and filled with `HELLO.TXT`, the user program, the compressed Linux kernel and the
+initramfs. `test.sh` attaches it to a dedicated `ich9-ahci` controller on the `pc`
+machine and to the built-in AHCI controller on q35.
 
 A file is staged into RAM first (`kernel/ramdisk.c`), then `kernel/elf.c` maps its
 `PT_LOAD` segments into user pages. User space lives in `PML4[1]`, a subtree no
@@ -149,6 +165,77 @@ and `exit` are the whole syscall set for now, with `puts`, `strlen`, `memset` an
 Leaving ring 3 cannot use `iretq` - the user frames are abandoned on purpose - so
 the exit call restores the kernel stack and flags saved at entry and returns to the
 caller that started the process.
+
+## The Linux payload
+
+Phase 5 stops treating the boot chain as the destination. After the demos, the
+kernel loads a Linux kernel from the same FAT32 volume and jumps into it, so the
+Gen7 block that only a real driver reaches becomes reachable.
+
+**What is built.** `build.sh` downloads `linux-6.12.115.tar.xz` (the 6.12 longterm)
+from `cdn.kernel.org` and refuses it unless the sha256 matches the constant next to
+the version. It configures with `defconfig` plus `configs/linux-baytrail.fragment`
+through `merge_config.sh`, so the file lists every deviation from a generic x86_64
+kernel and a reader can audit it without diffing a 5000-line `.config` against a
+version they do not have. The fragment gives the payload an 8250 console, a gzip
+initramfs, devtmpfs/tmpfs/procfs/sysfs, ELF and script `binfmt`, the AHCI and PIIX
+storage drivers, and `i915`; it also turns off modules (one self-contained image)
+and KASLR (the loader reports where it put the kernel and the gate asserts that
+address).
+
+**Where it is built.** Not in this checkout. The kernel `Makefile` aborts with
+`*** source directory cannot contain spaces or colons.`, and this repository lives
+under `Linux distro for playing video`. Everything is kept in
+`${BMX_LINUX_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/bmx}` instead: the tarball, the
+extracted source and an out-of-tree object directory. Nothing there is tracked by
+git, and deleting it costs a rebuild and nothing else.
+
+**The handoff** (`kernel/linuxboot.c`, `kernel/linuxjump.asm`). The loader parses
+the setup header at offset `0x1f1`, checks the `HdrS` magic and the protocol
+version, and reads `pref_address`, `kernel_alignment`, `init_size` and
+`relocatable`. The preferred address is treated as a hint: the loader walks up in
+`kernel_alignment` steps to the first window that is free and reserves
+`align_up(init_size, kernel_alignment)` bytes past the decompression target, which
+is what the decompressor actually writes rather than the smaller `init_size`. It
+builds a zero page carrying the E820 map and the command line, copies the initramfs
+into frames of its own, and enters the 64-bit entry point through a flat GDT.
+
+Two fields in that zero page are easy to miss and both are correctness, not
+bookkeeping. `type_of_loader` must be non-zero (`0xFF` for a loader with no
+assigned id): the kernel reads zero as "no bootloader supplied an initrd", skips
+the reservation and never unpacks the archive, and the only symptom is a panic
+about a missing root device. `ramdisk_image` is 32-bit, so the loader refuses an
+initramfs above 4 GiB instead of truncating it.
+
+**The initramfs.** A gzip cpio archive written field by field in `build.sh`, holding
+`/dev`, `/dev/console` as character device 5:1, and `/init`. It is written that way
+rather than by calling `cpio` because `mknod` needs a privilege the build must not
+assume and the newc header carries the device numbers directly. The device node is
+required rather than decorative: with `rdinit=` resolving inside the initramfs the
+kernel skips `prepare_namespace()`, and with it the devtmpfs mount that would have
+created the node, yet it opens `/dev/console` for PID 1 before it ever reads the
+command line. Without the node PID 1 starts with no file descriptors and its first
+`write` fails with `EBADF`.
+
+`/init` is a freestanding ELF built from `initramfs/init.asm` against Linux's own
+syscall ABI, not this project's, so it shares no runtime with `user/`. It writes a
+marker to COM1 and then powers the machine off, so a gate run ends by itself
+instead of on a timeout.
+
+**The gate.** All three paths must reach userspace:
+
+```
+linux: initrd 0x<hex> <dec> bytes
+Unpacking initramfs...
+Run /init as init process
+bmx: initramfs marker
+reboot: Power down
+```
+
+**What QEMU cannot prove.** `i915` and VA-API need Gen7 silicon and QEMU has no such
+device, so the roadmap line "`vainfo` reports the H.264 decode entrypoint" is a
+phase 6 hardware assertion. Phase 5 is done when the payload reaches a userspace
+process on the BIOS, q35 and UEFI paths, and nothing here claims QEMU decoded video.
 
 ## Writing to a USB stick
 

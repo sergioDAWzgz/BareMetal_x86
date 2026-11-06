@@ -92,20 +92,45 @@ wrong dword let a read "succeed" while moving no bytes, and returning from the
 syscall with `ret` instead of restoring the flags left the kernel with interrupts
 disabled after the first ring-3 process.
 
-## Phase 5 - video, the decision point
+## Phase 5 - the Linux payload (done)
 
 The Gen7 hardware decode block is only reachable through a Linux driver, so a
 from-scratch GPU driver is out of scope. **Decision taken: reuse the open source
-Intel driver instead of writing one.** That makes 5b the target.
+Intel driver instead of writing one.** That makes 5b the target; 5a - software
+decode inside our own kernel, realistic at 720p on the N2930 and not at all on the
+N2807 - was discarded.
 
-- **5a - own kernel only** (fallback, not the goal). Software decode (H.264
-  baseline) into the framebuffer. Realistic at 720p on the N2930, not at 1080p,
-  and not on the N2807.
-- **5b - Linux payload** (target). Keep the loader and boot a Linux kernel plus
-  initramfs; the open source `i915` driver and VA-API then provide hardware
-  decode. This is the only path to real 1080p playback without writing a driver.
+The boot chain stops being the destination. Our kernel loads a Linux kernel from
+the same FAT32 volume and jumps into it, so all three boot paths run one handoff
+through one code path.
 
-Gate: 5b boots and `vainfo` reports the H.264 decode entrypoint.
+- [x] pinned kernel source: `linux-6.12.115.tar.xz` from `cdn.kernel.org`, sha256
+      checked against a constant, configured with `defconfig` plus the auditable
+      `configs/linux-baytrail.fragment`
+- [x] the setup-header handoff: relocation onto the first free `kernel_alignment`
+      window, a reservation sized by `init_size` rounded up to that alignment, a
+      zero page with the E820 map, the command line and `type_of_loader`, and a
+      jump through a flat GDT to the 64-bit entry point
+- [x] a gzip initramfs holding `/dev`, `/dev/console` and a freestanding `/init`
+      that writes a marker to COM1 and powers the machine off
+- [x] the gate asserts the handoff, Linux's own banner and the marker on the BIOS,
+      q35 and UEFI paths
+
+Gate: `test.sh` prints `PASS` on all three paths, and the serial log reaches
+`bmx: initramfs marker` followed by `reboot: Power down`.
+
+**The `vainfo` line is not a QEMU assertion.** `i915` and VA-API need Gen7 silicon
+and QEMU has no such device, so "`vainfo` reports the H.264 decode entrypoint" moved
+to phase 6, where there is a board to run it on. Phase 5 closes when the payload
+reaches a userspace process on all three emulated paths; nothing here claims QEMU
+decoded video, and the initramfs is the proof of the handoff rather than the final
+root filesystem.
+
+Two defects the gate found are worth keeping, because both failed silently: an
+initramfs without `/dev/console` leaves PID 1 with no file descriptors, and a zero
+`type_of_loader` makes the kernel ignore an initrd that is already in memory. In
+both cases the only symptom is a panic about a missing root device. Both are
+recorded in `odd/tasks/phase5-linux-payload.md`.
 
 ## Phase 6 - real board bring-up
 
@@ -113,3 +138,7 @@ Gate: 5b boots and `vainfo` reports the H.264 decode entrypoint.
 - [ ] confirm BIOS settings: legacy vs UEFI boot, SATA mode, COM1 transmission mode
 - [ ] confirm the serial cable pinout for the internal COM headers
 - [ ] document the recovery path for a machine that fails to boot
+- [ ] provide the real root filesystem, since the initramfs only proves the handoff:
+      a distribution on the stick carrying `libva` and the Intel driver
+- [ ] run `vainfo` on the board and confirm it reports the H.264 decode entrypoint
+- [ ] play 1080p H.264 and measure the CPU load to prove the block is doing the work
