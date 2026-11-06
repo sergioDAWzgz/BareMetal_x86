@@ -115,12 +115,16 @@ common_assertions() {
     || fail "$label: the payload load window was not reported"
   grep -q 'linux: boot_params 0x[0-9a-f]* cmdline 0x[0-9a-f]*' "$log" \
     || fail "$label: the zero page was not built"
+  grep -q 'linux: initrd 0x[0-9a-f]* [0-9][0-9]* bytes' "$log" \
+    || fail "$label: the initramfs was not handed to the kernel"
   grep -q 'linux: e820 [1-9][0-9]* entries'     "$log" \
     || fail "$label: the memory map was not handed to Linux"
   grep -q 'linux: jumping to the 64-bit entry at 0x[0-9a-f]*' "$log" \
     || fail "$label: the loader never jumped to the Linux entry point"
   grep -q 'Linux version 6\.12\.115'            "$log" \
     || fail "$label: the Linux payload did not start"
+  grep -q 'bmx: initramfs marker'               "$log" \
+    || fail "$label: the payload never reached userspace"
 }
 
 # --- BIOS / legacy path ----------------------------------------------------
@@ -169,10 +173,12 @@ if [ "$HAVE_PYTHON" -eq 1 ]; then
   KEYS_INJECTED=1
 
   # The echo loop yields a few seconds after the last keystroke and the payload
-  # starts from there, so the wait is on Linux's own banner instead of a fixed
-  # sleep that would race the decompressor.
+  # starts from there, so the wait is on the payload itself instead of a fixed
+  # sleep that would race the decompressor. Linux's banner is not the end of the
+  # run: the initramfs marker is, and init powers the machine off right after it,
+  # so this loop also stops when QEMU leaves on its own.
   for _ in $(seq 1 200); do
-    grep -q 'Linux version' "$LOG" 2>/dev/null && break
+    grep -q 'bmx: initramfs marker' "$LOG" 2>/dev/null && break
     kill -0 "$QEMU_PID" 2>/dev/null || break
     sleep 0.5
   done

@@ -139,6 +139,70 @@ USER_CFLAGS=(
   -o "$BUILD_DIR/USER.ELF" "$BUILD_DIR/crt0.o" "$BUILD_DIR/user-libc.o" \
   "$BUILD_DIR/user-main.o"
 
+# The initramfs the Linux payload mounts as its root filesystem. It is a cpio
+# "newc" archive with three entries: /dev, the console device, and /init.
+#
+# The device node is why the archive is written field by field instead of calling
+# cpio: mknod needs a privilege the build must not assume, and the newc header
+# carries the device numbers directly. The format is fixed by
+# Documentation/driver-api/early-userspace/buffer-format.rst: the magic "070701",
+# thirteen 8-digit hex fields, the name padded to four bytes, the data padded to
+# four bytes.
+#
+# /dev/console is not decoration. With rdinit= pointing into the initramfs the
+# kernel skips prepare_namespace(), so devtmpfs is never mounted; console_on_rootfs()
+# therefore opens /dev/console out of the archive itself, and without that node PID
+# 1 starts with no file descriptors at all.
+step "build initramfs"
+
+if ! command -v gzip >/dev/null 2>&1; then
+  echo "error: the initramfs step needs gzip to compress the archive" >&2
+  echo "       apt-get install gzip" >&2
+  exit 1
+fi
+
+"$NASM" -f elf64 initramfs/init.asm -o "$BUILD_DIR/init.o"
+"$LD" -m elf_x86_64 -nostdlib -static -o "$BUILD_DIR/init" "$BUILD_DIR/init.o"
+
+# Zero bytes that bring a length up to the next multiple of four.
+cpio_pad4() {
+  local padding=$(( (4 - $1 % 4) % 4 ))
+  while [ "$padding" -gt 0 ]; do
+    printf '\000'
+    padding=$((padding - 1))
+  done
+}
+
+# cpio_entry name ino mode nlink rdev-major rdev-minor data-file
+# The mode, inode and device numbers are the header's whole content; mtime is
+# pinned to the epoch so two builds of the same tree produce the same archive.
+cpio_entry() {
+  local name=$1 ino=$2 mode=$3 nlink=$4 rdevmajor=$5 rdevminor=$6 data=$7
+  local namesize=$(( ${#name} + 1 ))
+  local filesize=0
+
+  if [ -n "$data" ]; then
+    filesize=$(stat -c %s "$data")
+  fi
+
+  printf '070701%08x%08x%08x%08x%08x%08x%08x%08x%08x%08x%08x%08x%08x' \
+    "$ino" "$mode" 0 0 "$nlink" 0 "$filesize" 0 0 "$rdevmajor" "$rdevminor" \
+    "$namesize" 0
+  printf '%s\000' "$name"
+  cpio_pad4 $(( 110 + namesize ))
+  if [ -n "$data" ]; then
+    cat "$data"
+    cpio_pad4 "$filesize"
+  fi
+}
+
+{
+  cpio_entry dev         1 0040755 2 0 0 ""
+  cpio_entry dev/console 2 0020600 1 5 1 ""
+  cpio_entry init        3 0100755 1 0 0 "$BUILD_DIR/init"
+  cpio_entry "TRAILER!!!" 0 0      1 0 0 ""
+} | gzip -9 -n > "$BUILD_DIR/INITRD"
+
 # The Linux payload. It is a pinned upstream tarball built with a fragment on top
 # of defconfig. Both the version and the digest are constants here: a mirror that
 # served something else would silently change the payload, and an unpinned version
@@ -267,8 +331,11 @@ rm -f "$DATA_IMAGE"
 "$MCOPY" -i "$DATA_IMAGE" data/HELLO.TXT ::/HELLO.TXT
 "$MCOPY" -i "$DATA_IMAGE" "$BUILD_DIR/USER.ELF" ::/USER.ELF
 "$MCOPY" -i "$DATA_IMAGE" "$BUILD_DIR/bzImage" ::/LINUX.BIN
+"$MCOPY" -i "$DATA_IMAGE" "$BUILD_DIR/INITRD" ::/INITRD.BIN
 
 printf '\nkernel.bin    %s bytes (limit %s)\n' "$kernel_size" "$KERNEL_LIMIT"
+printf 'init          %s bytes\n' "$(stat -c %s "$BUILD_DIR/init")"
+printf 'INITRD        %s bytes\n' "$(stat -c %s "$BUILD_DIR/INITRD")"
 printf 'bzImage       %s bytes\n' "$(stat -c %s "$BUILD_DIR/bzImage")"
 printf 'baremetal.img %s bytes\n' "$(stat -c %s "$BUILD_DIR/baremetal.img")"
 printf 'data.img      %s bytes\n' "$(stat -c %s "$DATA_IMAGE")"

@@ -44,6 +44,25 @@ Delivery strategy: work-unit commits on `main`, one reviewable slice per task,
   A gzip initramfs is loaded below the direct map and handed over through
   `ramdisk_image`/`ramdisk_size`; the kernel boots with `console=ttyS0` and
   `rdinit=/init`, and `/init` prints a marker on COM1.
+
+  The archive carries `/dev/console` as a character device (major 5, minor 1).
+  It is not decoration: with `rdinit=` resolving inside the initramfs the kernel
+  skips `prepare_namespace()`, and with it the `devtmpfs_mount()` that would have
+  created the node, yet `console_on_rootfs()` opens `/dev/console` *before* that
+  choice is made. Without the node PID 1 starts with no file descriptors at all
+  and `write(1, ...)` fails with `EBADF`, so the marker never appears. The node is
+  why the archive is written field by field instead of calling `cpio`: `mknod`
+  needs a privilege the build must not assume.
+
+  The loader also writes `type_of_loader` (offset `0x210`) as `0xFF` before
+  jumping. `Documentation/arch/x86/boot.rst` marks that field `write
+  (obligatory)` and assigns `0xFF` to a bootloader with no id, yet `header.S`
+  ships it as zero: the kernel then reads it as "no bootloader supplied an
+  initrd" and `early_reserve_initrd()` and `reserve_initrd()` both return before
+  doing anything. `initrd_start` stays zero, `populate_rootfs()` never unpacks an
+  archive that is already in memory, and the resulting panic only mentions a
+  missing root device. Like `/dev/console`, it is part of the contract rather
+  than bookkeeping.
 - **S4** - the gate.
   `test.sh` asserts, on the BIOS path, the q35 path and the UEFI path, the
   handoff summary our kernel prints, Linux's own version banner, and the
@@ -88,9 +107,11 @@ Linux because the loop yields on its own after `5 * TIMER_HZ`.
   `fat32_read_at` in `kernel/fat32.c`, `acpi_rsdp_physical` in `kernel/acpi.c`,
   the `LINUX.BIN` copy into `build/data.img`, the `kbd: idle` yield in
   `kernel/kmain.c`, and the gate assertions. One unit because a built kernel
-  nobody boots proves nothing. Covers S1, S2, S4. Route: inline.
-- **T2** - initramfs. `initramfs/init` and a `cpio` step in `build.sh`, the
-  ramdisk handoff, `rdinit=/init`. Covers S3, S4. Route: inline.
+  nobody boots proves nothing. Covers S1, S2, S4. Route: inline. Landed as
+  `e27d0a8`.
+- **T2** - initramfs. `initramfs/init.asm` and the cpio step in `build.sh`, the
+  ramdisk handoff, `rdinit=/init`, `type_of_loader`. Covers S3, S4. Route: inline.
+  Closed with the gate green, see L10.
 - **T3** - userspace stack and documentation. Busybox, libva and `vainfo` in the
   initramfs, `README.md`, `docs/roadmap.md`, and the S5 caveat. Covers S5, S6.
   Route: inline.
@@ -271,5 +292,77 @@ time:
    red for a reason that says nothing about the image. The cleanup now reports a
    warning and keeps its hands off the verdict; the assertions stay the only
    thing that can fail that file.
+
+### L10 (T2 closed, 2026-11-05)
+
+The first T2 gate run put the archive in memory and still failed on the BIOS
+path:
+
+```
+linux: initrd 0x0000000000125000 531 bytes
+...
+[    8.398887] /dev/root: Can't open blockdev
+[    8.416068] VFS: Cannot open root device "" or unknown-block(0,0): error -6
+[    8.761996]  prepare_namespace+0x64/0x270
+FAIL: bios: the payload never reached userspace
+```
+
+The handoff line was true, so the first suspect was the archive. It was not. An
+independent probe confirmed all of it: `gzip -t` passes, GNU `cpio -itv` lists
+`drwxr-xr-x dev`, `crw------- 5,1 dev/console`, `-rwxr-xr-x 8936 init`, the magic
+reads `070701`, and `readelf` shows an `EXEC` ELF with `_start` at `0x401000`
+inside an `R E` `LOAD` segment. The bytes in memory were a valid initramfs.
+
+The archive was never unpacked, because of a header field:
+
+1. **`type_of_loader` (offset `0x210`) was zero.** `Documentation/arch/x86/boot.rst`
+   lists it as `write (obligatory)` and assigns `0xFF` to a bootloader with no
+   assigned id, but `arch/x86/boot/header.S` ships it as zero with the comment
+   *"0 means ancient bootloader, newer bootloaders know to change this"*. Zero is
+   not inert: `early_reserve_initrd()` and `reserve_initrd()` both open with
+   `if (!boot_params.hdr.type_of_loader || !ramdisk_image || !ramdisk_size)`
+   and return, so nothing is reserved, `initrd_start` stays zero, and
+   `populate_rootfs()` never looks at the archive it was handed. `build_boot_params`
+   now writes `LOADER_TYPE_UNASSIGNED` (`0xFF`) before anything reads the field.
+
+   Checked before changing it: no quirk keys off `bootloader_type == 0`. The only
+   consumers are those two gates, the `/proc/sys/kernel/bootloader_type` value,
+   and the `type_of_loader >> 4 == 0xe` extension path, which `0xF` does not
+   trigger.
+
+2. **`/dev/console` has to be in the archive.** With `rdinit=` resolving inside the
+   initramfs the kernel skips `prepare_namespace()`, and with it the
+   `devtmpfs_mount()` that would create the node, yet `console_on_rootfs()` opens
+   `/dev/console` *before* that decision. Without the node PID 1 starts with no
+   file descriptors and `write(1, ...)` returns `EBADF`. That is why the archive is
+   written field by field in `build.sh` instead of shelling out to `cpio`: the newc
+   header carries the device numbers and `mknod` would need a privilege the build
+   must not assume. The generator was validated against GNU `cpio` before it was
+   trusted, and two runs of it are byte-identical (`mtime 0`, `gzip -9 -n`).
+
+With both in place all three paths reach userspace and end on their own, which is
+the point of `/init` calling `reboot(LINUX_REBOOT_CMD_POWER_OFF)`:
+
+```
+RAMDISK: [mem 0x00125000-0x00125fff]
+Unpacking initramfs...
+Freeing initrd memory: 4K
+Run /init as init process
+bmx: initramfs marker
+reboot: Power down
+```
+
+```
+FAIL count: 0
+PASS count: 3
+PASS: bios path reaches long mode with a framebuffer, PCI and a PS/2 keyboard
+PASS: q35 path parses the MCFG window
+PASS: uefi path boots the same kernel through GOP
+```
+
+Both defects are the same lesson: on this boot path the kernel's silence is not
+evidence of success. A missing `type_of_loader` and a missing device node both
+show up as "no initramfs", and the only line that says so plainly is the
+`RAMDISK:` one that the failing run never printed.
 
 

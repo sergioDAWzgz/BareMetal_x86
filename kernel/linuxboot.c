@@ -13,7 +13,10 @@
 #define HDR_JUMP_OFFSET        0x0201u
 #define HDR_MAGIC              0x0202u
 #define HDR_PROTOCOL           0x0206u
+#define HDR_TYPE_OF_LOADER     0x0210u
 #define HDR_CODE32_START       0x0214u
+#define HDR_RAMDISK_IMAGE      0x0218u
+#define HDR_RAMDISK_SIZE       0x021Cu
 #define HDR_CMD_LINE_PTR       0x0228u
 #define HDR_KERNEL_ALIGNMENT   0x0230u
 #define HDR_RELOCATABLE        0x0234u
@@ -23,6 +26,16 @@
 
 #define HDR_MAGIC_VALUE 0x53726448u     /* "HdrS", the protocol 2.00 signature */
 #define XLF_KERNEL_64   0x0001u         /* the 64-bit entry point at +0x200 exists */
+
+/* Documentation/arch/x86/boot.rst lists type_of_loader as a write the boot
+   loader must perform, and names 0xFF for one without an assigned id. It is not
+   bookkeeping: the kernel treats a zero there as "no bootloader supplied an
+   initrd", so early_reserve_initrd() and reserve_initrd() both return without
+   reserving anything, initrd_start stays zero and populate_rootfs() never
+   unpacks the archive that is already in memory. The failure is silent because
+   the panic only says the root device is missing. header.S ships the field as
+   zero with a comment telling loaders to change it. */
+#define LOADER_TYPE_UNASSIGNED 0xFFu
 
 /* The setup header starts at 0x1f1 and runs past 0x260, so it does not fit the
    512-byte boot sector: it continues into the setup sectors behind it. Two
@@ -108,6 +121,10 @@ static void build_boot_params(uint8_t *boot_params, uint32_t pm_start,
     uint32_t entries = memmap_count();
     uint32_t index;
 
+    /* Before anything else that depends on it: the initrd reservation and the
+       unpack both key off this byte. */
+    boot_params[HDR_TYPE_OF_LOADER] = LOADER_TYPE_UNASSIGNED;
+
     write32(boot_params + HDR_CODE32_START, pm_start);
     write32(boot_params + HDR_CMD_LINE_PTR, (uint32_t)cmd_line_phys);
 
@@ -156,6 +173,60 @@ static void load_window(uint32_t setup_sects, uint32_t alignment,
     if (load + file_size > *reserved_end) {
         *reserved_end = load + file_size;
     }
+}
+
+/* Copies INITRD.BIN into frames of its own and points boot_params at them. The
+   archive has to be one contiguous run: Linux reads it through a single physical
+   address, and the frames stay out of the allocator's hands from here on, so
+   nothing the loader allocates afterwards can land inside it. */
+static int load_initrd(uint8_t *boot_params)
+{
+    fat32_file_t file;
+    uint64_t frames;
+    uint64_t phys;
+    int32_t bytes;
+
+    if (fat32_open("INITRD.BIN", &file) != 0) {
+        failure = fat32_error();
+        return -1;
+    }
+    if (file.size == 0) {
+        failure = "INITRD.BIN is empty";
+        return -1;
+    }
+
+    frames = ((uint64_t)file.size + PAGE_SIZE - 1) / PAGE_SIZE;
+    phys = pmm_alloc_frames(frames);
+    if (phys == 0) {
+        failure = "no contiguous run of frames for the initramfs";
+        return -1;
+    }
+
+    /* The last frame is transferred whole, so the buffer is the rounded-up run
+       and the capacity with it; only file.size bytes belong to the archive. */
+    bytes = fat32_read_at(&file, 0, PHYS_TO_VIRT(phys),
+                          (uint32_t)(frames * PAGE_SIZE), file.size);
+    if (bytes < 0) {
+        failure = fat32_error();
+        return -1;
+    }
+
+    /* ramdisk_image is a 32-bit field, and protocol 2.15 pairs it with the
+       ext_ramdisk_ fields for a 64-bit address. Refusing the high case keeps
+       those two zero, which is what the zeroed zero page already holds. */
+    if (phys > 0xFFFFFFFFu) {
+        failure = "the initramfs would land above the 4 GiB ramdisk_image limit";
+        return -1;
+    }
+    write32(boot_params + HDR_RAMDISK_IMAGE, (uint32_t)phys);
+    write32(boot_params + HDR_RAMDISK_SIZE, file.size);
+
+    console_write("linux: initrd ");
+    console_hex64(phys);
+    console_write(" ");
+    console_dec(file.size);
+    console_write(" bytes\n");
+    return 0;
 }
 
 int linux_payload_boot(void)
@@ -335,6 +406,12 @@ int linux_payload_boot(void)
     console_write(" cmdline ");
     console_hex64(cmd_line_phys);
     console_write("\n");
+
+    /* After the header copy: ramdisk_image lives inside the copied region and the
+       image's own header leaves it at zero. */
+    if (load_initrd(boot_params) != 0) {
+        return -1;
+    }
 
     console_write("linux: e820 ");
     console_dec(boot_params[BP_E820_ENTRIES]);
