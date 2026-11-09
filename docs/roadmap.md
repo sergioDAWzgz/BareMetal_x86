@@ -180,6 +180,6 @@ adapter are both DTE, so TX and RX have to cross. A straight-through cable is
 enough to watch the boot and never enough to type into it.
 
 The image now boots Alpine: the payload mounts the ext4 root by PARTUUID, OpenRC
-starts and COM1 gives a root shell. The gate proves that on the BIOS, q35 and UEFI
-paths. `vainfo` is the next board check, and the Gen7 i965 driver is already in the
-root filesystem.
+starts and COM1 gives a root shell. The gate proves OpenRC starts on the BIOS, q35
+and UEFI paths; the ttyS0 shell was checked by hand. `vainfo` is the next board
+check, and the Gen7 i965 driver is already in the root filesystem.

@@ -22,11 +22,11 @@ q35 and UEFI paths.
 
 ## Tasks
 
-- T1 build the cached Alpine rootfs and the ext4 image - inline - pending
-- T2 add the disk signature and partition 2 - inline - pending
-- T3 boot the root without an initramfs - inline - pending
-- T4 update the gate assertions and timing - inline - pending
-- T5 update README and roadmap - inline - pending
+- T1 build the cached Alpine rootfs and the ext4 image - inline - done (1c92cd9)
+- T2 add the disk signature and partition 2 - inline - done (1c92cd9)
+- T3 boot the root without an initramfs - inline - done (1c92cd9)
+- T4 update the gate assertions and timing - inline - done (1c92cd9)
+- T5 update README and roadmap - inline - done (1c92cd9)
 
 ## Log
 

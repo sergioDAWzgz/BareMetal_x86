@@ -205,9 +205,9 @@ through `merge_config.sh`, so the file lists every deviation from a generic x86_
 kernel and a reader can audit it without diffing a 5000-line `.config` against a
 version they do not have. The fragment gives the payload an 8250 console,
 devtmpfs/tmpfs/procfs/sysfs, ELF and script `binfmt`, the AHCI and PIIX storage
-drivers, ext4, and `i915`; it also turns off modules (one self-contained image)
-and KASLR (the loader reports where it put the kernel and the gate asserts that
-address). Everything the root needs to mount is built in.
+drivers, and `i915`; ext4 comes from `defconfig`. It also turns off modules (one
+self-contained image) and KASLR (the loader reports where it put the kernel and
+the gate asserts that address). Everything the root needs to mount is built in.
 
 **The root filesystem.** Alpine 3.24, built from a pinned minirootfs and a pinned
 `apk-tools-static`, both checked against constants. `apk` populates it without
