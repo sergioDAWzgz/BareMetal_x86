@@ -29,11 +29,11 @@
    The loop demonstrates the 8042 path; it is not the destination of the boot, so
    an unattended board - and the q35 and UEFI gate paths, which inject no
    keystrokes - still has to reach Linux. */
-#define KBD_IDLE_TICKS (5 * TIMER_HZ)
+#define KBD_IDLE_TICKS (30 * TIMER_HZ)
 /* A serial line that is unconnected or noisy can deliver a byte forever, and
    every byte resets the idle timer. This caps the whole loop so the payload is
    reached even when the input side never goes quiet. */
-#define KBD_ECHO_MAX_TICKS (30 * TIMER_HZ)
+#define KBD_ECHO_MAX_TICKS (60 * TIMER_HZ)
 /* The stack the CPU switches to on every interrupt taken from ring 3. Separate
    from the boot stack so a user process can never walk into kernel frames, and
    from the user stack so a deep user call chain cannot reach kernel data. */
@@ -155,6 +155,17 @@ static void keyboard_start(void)
     console_write("kbd: controller ready, IRQ1 unmasked\n");
 }
 
+static void echo_loop_report(void)
+{
+    console_write("kbd: serial bytes ");
+    console_dec(serial_rx_count());
+    if (serial_rx_count() > 0) {
+        console_write(" last 0x");
+        console_hex_width(serial_last_rx(), 2);
+    }
+    console_write("\n");
+}
+
 static void keyboard_echo_loop(void)
 {
     char line[KBD_LINE_MAX];
@@ -174,10 +185,12 @@ static void keyboard_echo_loop(void)
         if (key < 0) {
             if (timer_ticks_get() - started >= KBD_ECHO_MAX_TICKS) {
                 console_write("\nkbd: echo loop time limit, leaving\n");
+                echo_loop_report();
                 return;
             }
             if (timer_ticks_get() - last_key >= KBD_IDLE_TICKS) {
                 console_write("\nkbd: idle, leaving the echo loop\n");
+                echo_loop_report();
                 return;
             }
             __asm__ volatile("hlt");
@@ -416,6 +429,9 @@ void kmain(void)
     } else {
         console_write("serial: loopback self-test passed\n");
     }
+    /* The loopback bytes are the test's own traffic, not input; start the
+       receive count the echo loop reports from zero. */
+    serial_rx_reset();
 
     keyboard_start();
 
