@@ -15,8 +15,6 @@
 #define HDR_PROTOCOL           0x0206u
 #define HDR_TYPE_OF_LOADER     0x0210u
 #define HDR_CODE32_START       0x0214u
-#define HDR_RAMDISK_IMAGE      0x0218u
-#define HDR_RAMDISK_SIZE       0x021Cu
 #define HDR_CMD_LINE_PTR       0x0228u
 #define HDR_KERNEL_ALIGNMENT   0x0230u
 #define HDR_RELOCATABLE        0x0234u
@@ -64,10 +62,12 @@
 #define DEFAULT_LOAD_ADDRESS 0x100000ULL /* where a kernel without pref_address runs */
 #define PAGE_SIZE 4096u
 
-/* Serial first, because every phase 5 assertion is read from COM1, and rdinit
-   because the initramfs is the whole filesystem. */
+/* The real root is the Alpine ext4 partition, named by the MBR disk signature
+   build.sh writes. No initramfs is passed: ext4, AHCI and the block layer are
+   built in, so the kernel mounts the root itself and runs /sbin/init. */
 static const char CMD_LINE[] =
-    "console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 rdinit=/init";
+    "root=PARTUUID=424d5836-02 rw console=ttyS0,115200 "
+    "earlyprintk=serial,ttyS0,115200";
 
 static const char *failure = "none";
 static uint8_t setup[SETUP_BYTES];
@@ -173,60 +173,6 @@ static void load_window(uint32_t setup_sects, uint32_t alignment,
     if (load + file_size > *reserved_end) {
         *reserved_end = load + file_size;
     }
-}
-
-/* Copies INITRD.BIN into frames of its own and points boot_params at them. The
-   archive has to be one contiguous run: Linux reads it through a single physical
-   address, and the frames stay out of the allocator's hands from here on, so
-   nothing the loader allocates afterwards can land inside it. */
-static int load_initrd(uint8_t *boot_params)
-{
-    fat32_file_t file;
-    uint64_t frames;
-    uint64_t phys;
-    int32_t bytes;
-
-    if (fat32_open("INITRD.BIN", &file) != 0) {
-        failure = fat32_error();
-        return -1;
-    }
-    if (file.size == 0) {
-        failure = "INITRD.BIN is empty";
-        return -1;
-    }
-
-    frames = ((uint64_t)file.size + PAGE_SIZE - 1) / PAGE_SIZE;
-    phys = pmm_alloc_frames(frames);
-    if (phys == 0) {
-        failure = "no contiguous run of frames for the initramfs";
-        return -1;
-    }
-
-    /* The last frame is transferred whole, so the buffer is the rounded-up run
-       and the capacity with it; only file.size bytes belong to the archive. */
-    bytes = fat32_read_at(&file, 0, PHYS_TO_VIRT(phys),
-                          (uint32_t)(frames * PAGE_SIZE), file.size);
-    if (bytes < 0) {
-        failure = fat32_error();
-        return -1;
-    }
-
-    /* ramdisk_image is a 32-bit field, and protocol 2.15 pairs it with the
-       ext_ramdisk_ fields for a 64-bit address. Refusing the high case keeps
-       those two zero, which is what the zeroed zero page already holds. */
-    if (phys > 0xFFFFFFFFu) {
-        failure = "the initramfs would land above the 4 GiB ramdisk_image limit";
-        return -1;
-    }
-    write32(boot_params + HDR_RAMDISK_IMAGE, (uint32_t)phys);
-    write32(boot_params + HDR_RAMDISK_SIZE, file.size);
-
-    console_write("linux: initrd ");
-    console_hex64(phys);
-    console_write(" ");
-    console_dec(file.size);
-    console_write(" bytes\n");
-    return 0;
 }
 
 int linux_payload_boot(void)
@@ -406,12 +352,6 @@ int linux_payload_boot(void)
     console_write(" cmdline ");
     console_hex64(cmd_line_phys);
     console_write("\n");
-
-    /* After the header copy: ramdisk_image lives inside the copied region and the
-       image's own header leaves it at zero. */
-    if (load_initrd(boot_params) != 0) {
-        return -1;
-    }
 
     console_write("linux: e820 ");
     console_dec(boot_params[BP_E820_ENTRIES]);

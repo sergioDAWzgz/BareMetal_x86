@@ -10,8 +10,10 @@ QEMU=${QEMU:-qemu-system-x86_64}
 # Every path now boots a real Linux kernel after the demos, and QEMU emulates the
 # CPU in software, so these are generous on purpose: a timeout that fires during
 # the payload would look like a loader bug.
-BOOT_SECONDS=${BOOT_SECONDS:-120}
-UEFI_SECONDS=${UEFI_SECONDS:-150}
+BOOT_SECONDS=${BOOT_SECONDS:-60}
+# OVMF under TCG spends much longer than the kernel timestamps suggest before
+# OpenRC prints; the wait loop stops as soon as the banner appears.
+UEFI_SECONDS=${UEFI_SECONDS:-180}
 OVMF_CODE=${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}
 OVMF_VARS=${OVMF_VARS:-/usr/share/OVMF/OVMF_VARS_4M.fd}
 
@@ -56,6 +58,28 @@ SCRATCH=$(mktemp -d)
 trap 'rm -rf -- "$SCRATCH" || echo "WARNING: could not remove $SCRATCH" >&2' EXIT
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
+
+# Runs QEMU until OpenRC prints its banner, then stops it. The root shell never
+# exits, so a fixed timeout would either cut a slow OVMF boot or waste the whole
+# budget after init is already up.
+run_until_openrc() {
+  local log=$1 seconds=$2
+  shift 2
+
+  timeout "$seconds" "$QEMU" "$@" -display none -serial "file:$log" -no-reboot \
+    >/dev/null 2>&1 &
+  local pid=$!
+  local spins=$((seconds * 2))
+
+  while [ "$spins" -gt 0 ]; do
+    grep -q 'OpenRC [0-9]' "$log" 2>/dev/null && break
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.5
+    spins=$((spins - 1))
+  done
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
 
 common_assertions() {
   local log="$1"
@@ -125,16 +149,18 @@ common_assertions() {
     || fail "$label: the payload load window was not reported"
   grep -q 'linux: boot_params 0x[0-9a-f]* cmdline 0x[0-9a-f]*' "$log" \
     || fail "$label: the zero page was not built"
-  grep -q 'linux: initrd 0x[0-9a-f]* [0-9][0-9]* bytes' "$log" \
-    || fail "$label: the initramfs was not handed to the kernel"
   grep -q 'linux: e820 [1-9][0-9]* entries'     "$log" \
     || fail "$label: the memory map was not handed to Linux"
   grep -q 'linux: jumping to the 64-bit entry at 0x[0-9a-f]*' "$log" \
     || fail "$label: the loader never jumped to the Linux entry point"
   grep -q 'Linux version 6\.12\.115'            "$log" \
     || fail "$label: the Linux payload did not start"
-  grep -q 'bmx: initramfs marker'               "$log" \
-    || fail "$label: the payload never reached userspace"
+  grep -q 'VFS: Mounted root (ext4 filesystem)'  "$log" \
+    || fail "$label: the Alpine root filesystem was not mounted"
+  grep -q 'Run /sbin/init as init process'      "$log" \
+    || fail "$label: the Alpine init was not started"
+  grep -q 'OpenRC [0-9]'                        "$log" \
+    || fail "$label: OpenRC did not start"
 }
 
 # --- BIOS / legacy path ----------------------------------------------------
@@ -181,13 +207,12 @@ if [ "$HAVE_PYTHON" -eq 1 ]; then
   fi
   KEYS_INJECTED=1
 
-  # The echo loop yields a few seconds after the last keystroke and the payload
-  # starts from there, so the wait is on the payload itself instead of a fixed
-  # sleep that would race the decompressor. Linux's banner is not the end of the
-  # run: the initramfs marker is, and init powers the machine off right after it,
-  # so this loop also stops when QEMU leaves on its own.
+  # The echo loop yields 30 seconds after the last keystroke and the payload
+  # starts from there, so the wait is on the root filesystem being mounted
+  # instead of a fixed sleep that would race the decompressor. The shell on
+  # ttyS0 never exits, so the loop kills QEMU once init is running.
   for _ in $(seq 1 200); do
-    grep -q 'bmx: initramfs marker' "$LOG" 2>/dev/null && break
+    grep -q 'OpenRC [0-9]' "$LOG" 2>/dev/null && break
     kill -0 "$QEMU_PID" 2>/dev/null || break
     sleep 0.5
   done
@@ -225,11 +250,10 @@ echo 'PASS: bios path reaches long mode with a framebuffer, PCI and a PS/2 keybo
 # --- Q35 path: the MCFG table only exists on a platform that publishes one ---
 LOG=build/serial-q35.log
 rm -f "$LOG"
-timeout "$BOOT_SECONDS" "$QEMU" \
+run_until_openrc "$LOG" "$BOOT_SECONDS" \
   -machine q35 -cpu qemu64 -m 512 \
   "${DISK_Q35[@]}" \
-  -boot c -display none -serial "file:$LOG" -no-reboot \
-  >/dev/null 2>&1 || true
+  -boot c
 
 echo '--- serial output (q35) ---'
 cat "$LOG"
@@ -260,13 +284,11 @@ fi
 cp "$OVMF_VARS" build/OVMF_VARS.fd
 LOG=build/serial-uefi.log
 rm -f "$LOG"
-timeout "$UEFI_SECONDS" "$QEMU" \
+run_until_openrc "$LOG" "$UEFI_SECONDS" \
   -machine pc -cpu qemu64 -m 512 \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file=build/OVMF_VARS.fd \
-  "${DISK_PC[@]}" \
-  -display none -serial "file:$LOG" -no-reboot \
-  >/dev/null 2>&1 || true
+  "${DISK_PC[@]}"
 
 echo '--- serial output (UEFI) ---'
 cat "$LOG"

@@ -158,8 +158,10 @@ open until the board itself says which one it uses.
 - [ ] confirm the pinout of the three internal RS-232 headers; the external COM1
       is the one tested so far
 - [ ] document the recovery path for a machine that fails to boot
-- [ ] provide the real root filesystem, since the initramfs only proves the handoff:
-      a distribution on the disk carrying `libva` and the Intel driver
+- [x] provide the real root filesystem: Alpine 3.24 on a 512 MiB ext4 partition,
+      built from a pinned minirootfs with `libva`, `libva-intel-driver` and
+      `libva-utils`; the payload mounts it by PARTUUID and the gate reaches OpenRC
+      on the BIOS, q35 and UEFI paths
 - [ ] run `vainfo` on the board and confirm it reports the H.264 decode entrypoint
 - [ ] play 1080p H.264 and measure the CPU load to prove the block is doing the work
 
@@ -176,3 +178,8 @@ COM1 is the board's debug console: the firmware, our kernel and the Linux payloa
 all print there. Input needs a null-modem cable, because the board and a USB-serial
 adapter are both DTE, so TX and RX have to cross. A straight-through cable is
 enough to watch the boot and never enough to type into it.
+
+The image now boots Alpine: the payload mounts the ext4 root by PARTUUID, OpenRC
+starts and COM1 gives a root shell. The gate proves that on the BIOS, q35 and UEFI
+paths. `vainfo` is the next board check, and the Gen7 i965 driver is already in the
+root filesystem.

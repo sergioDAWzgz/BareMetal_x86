@@ -73,11 +73,16 @@ dap:
     dw STAGE2_SEG
     dq STAGE2_LBA
 
-; The partition table lives at 446..509 and build.sh writes it, because only the
-; build knows where the FAT32 volume starts. Reserving the area here keeps the
-; boot sector owned by one file: this one decides the size, the build the
-; contents. No slot is marked active on purpose -- the boot code is what boots,
-; and an active flag would invite a BIOS to run the volume's boot sector instead.
+; The disk signature at 440 and the partition table at 446..509 are written by
+; build.sh, because only the build knows the volume layout and the signature the
+; kernel command line names. Reserving both here keeps one owner per byte, and
+; makes the assembler refuse boot code that grows into them. No slot is marked
+; active on purpose -- the boot code is what boots, and an active flag would
+; invite a BIOS to run the volume's boot sector instead.
+times 440-($-$$) db 0
+disk_signature:
+    dd 0
+times 446-($-$$) db 0
 partition_table:
 times MBR_TABLE_SIZE db 0
 

@@ -167,10 +167,11 @@ controller or port position. When LBA 0 is an MBR instead of a boot sector, the
 driver follows each entry the table names, which is how the single image lets the
 kernel find the volume at LBA 2048.
 
-`build/disk.img` carries that volume: 64 MiB of FAT32, built by `build.sh` with
-`mformat` and filled with `HELLO.TXT`, the user program, the compressed Linux
-kernel, the initramfs and the UEFI loader. `test.sh` attaches the same file on all
-three paths: on an added `ich9-ahci` controller for `pc`, and on the built-in AHCI
+`build/disk.img` carries that volume plus the Alpine root: 64 MiB of FAT32 at LBA
+2048, built with `mformat` and filled with `HELLO.TXT`, the user program, the
+compressed Linux kernel and the UEFI loader, and a 512 MiB ext4 partition at LBA
+133120 with the root filesystem. `test.sh` attaches the same file on all three
+paths: on an added `ich9-ahci` controller for `pc`, and on the built-in AHCI
 controller for q35.
 
 A file is staged into RAM first (`kernel/ramdisk.c`), then `kernel/elf.c` maps its
@@ -202,11 +203,21 @@ from `cdn.kernel.org` and refuses it unless the sha256 matches the constant next
 the version. It configures with `defconfig` plus `configs/linux-baytrail.fragment`
 through `merge_config.sh`, so the file lists every deviation from a generic x86_64
 kernel and a reader can audit it without diffing a 5000-line `.config` against a
-version they do not have. The fragment gives the payload an 8250 console, a gzip
-initramfs, devtmpfs/tmpfs/procfs/sysfs, ELF and script `binfmt`, the AHCI and PIIX
-storage drivers, and `i915`; it also turns off modules (one self-contained image)
+version they do not have. The fragment gives the payload an 8250 console,
+devtmpfs/tmpfs/procfs/sysfs, ELF and script `binfmt`, the AHCI and PIIX storage
+drivers, ext4, and `i915`; it also turns off modules (one self-contained image)
 and KASLR (the loader reports where it put the kernel and the gate asserts that
-address).
+address). Everything the root needs to mount is built in.
+
+**The root filesystem.** Alpine 3.24, built from a pinned minirootfs and a pinned
+`apk-tools-static`, both checked against constants. `apk` populates it without
+root (`--usermode --no-chown`) with `alpine-base`, `libva`,
+`libva-intel-driver` (the Gen7 i965 driver) and `libva-utils`, and `mke2fs -d`
+writes the tree into a 512 MiB ext4 image. The serial console is an automatic
+root shell (`ttyS0::respawn:/bin/sh -l`) and `/etc/profile.d/bmx-va.sh` selects
+the i965 driver, so `vainfo` can be run as soon as the board reaches the prompt.
+Because the build runs unprivileged, the files in the image belong to the build
+user rather than root; init runs as root and the bench shell reads them anyway.
 
 **Where it is built.** Not in this checkout. The kernel `Makefile` aborts with
 `*** source directory cannot contain spaces or colons.`, and this repository lives
@@ -222,40 +233,26 @@ version, and reads `pref_address`, `kernel_alignment`, `init_size` and
 `kernel_alignment` steps to the first window that is free and reserves
 `align_up(init_size, kernel_alignment)` bytes past the decompression target, which
 is what the decompressor actually writes rather than the smaller `init_size`. It
-builds a zero page carrying the E820 map and the command line, copies the initramfs
-into frames of its own, and enters the 64-bit entry point through a flat GDT.
+builds a zero page carrying the E820 map and the command line
+(`root=PARTUUID=424d5836-02 rw console=ttyS0,115200`), and enters the 64-bit entry
+point through a flat GDT. The kernel mounts the root itself: ext4, AHCI and the
+block layer are built in, so no initramfs is passed.
 
-Two fields in that zero page are easy to miss and both are correctness, not
-bookkeeping. `type_of_loader` must be non-zero (`0xFF` for a loader with no
-assigned id): the kernel reads zero as "no bootloader supplied an initrd", skips
-the reservation and never unpacks the archive, and the only symptom is a panic
-about a missing root device. `ramdisk_image` is 32-bit, so the loader refuses an
-initramfs above 4 GiB instead of truncating it.
+`type_of_loader` is still written as `0xFF` for a loader with no assigned id. It
+no longer gates an initrd unpack, because the payload receives no initrd; it is
+bookkeeping now.
 
-**The initramfs.** A gzip cpio archive written field by field in `build.sh`, holding
-`/dev`, `/dev/console` as character device 5:1, and `/init`. It is written that way
-rather than by calling `cpio` because `mknod` needs a privilege the build must not
-assume and the newc header carries the device numbers directly. The device node is
-required rather than decorative: with `rdinit=` resolving inside the initramfs the
-kernel skips `prepare_namespace()`, and with it the devtmpfs mount that would have
-created the node, yet it opens `/dev/console` for PID 1 before it ever reads the
-command line. Without the node PID 1 starts with no file descriptors and its first
-`write` fails with `EBADF`.
-
-`/init` is a freestanding ELF built from `initramfs/init.asm` against Linux's own
-syscall ABI, not this project's, so it shares no runtime with `user/`. It writes a
-marker to COM1 and then powers the machine off, so a gate run ends by itself
-instead of on a timeout.
-
-**The gate.** All three paths must reach userspace:
+**The gate.** All three paths must mount the root and start OpenRC:
 
 ```
-linux: initrd 0x<hex> <dec> bytes
-Unpacking initramfs...
-Run /init as init process
-bmx: initramfs marker
-reboot: Power down
+VFS: Mounted root (ext4 filesystem)
+Run /sbin/init as init process
+OpenRC 0.63.2 is starting up
 ```
+
+The gate waits for the OpenRC banner and then stops QEMU, so a slow OVMF boot does
+not need a fixed timeout and a fast one does not waste it. The phase 5 initramfs
+stays in the tree as the record of that phase; the image no longer passes it.
 
 **What QEMU cannot prove.** `i915` and VA-API need Gen7 silicon and QEMU has no such
 device, so the roadmap line "`vainfo` reports the H.264 decode entrypoint" is a
@@ -264,8 +261,9 @@ process on the BIOS, q35 and UEFI paths, and nothing here claims QEMU decoded vi
 
 ## Writing the image to a disk
 
-`build/disk.img` is a complete disk: the MBR, the loader, the kernel and a 64 MiB
-FAT32 volume that serves both boot paths. Writing it destroys the target device:
+`build/disk.img` is a complete disk: the MBR, the loader, the kernel, a 64 MiB
+FAT32 volume that serves both boot paths, and a 512 MiB ext4 partition with the
+Alpine root (about 577 MiB in total). Writing it destroys the target device:
 
 ```sh
 sudo dd if=build/disk.img of=/dev/sdX bs=1M conv=fsync

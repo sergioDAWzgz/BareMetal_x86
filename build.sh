@@ -19,6 +19,7 @@ OBJCOPY=${OBJCOPY:-objcopy}
 MFORMAT=${MFORMAT:-mformat}
 MMD=${MMD:-mmd}
 MCOPY=${MCOPY:-mcopy}
+MKE2FS=${MKE2FS:-mke2fs}
 
 CFLAGS=(
   -m64 -std=c11 -O2 -Wall -Wextra
@@ -357,14 +358,112 @@ else
   echo "skip: the UEFI loader is missing, the volume has no EFI payload" >&2
 fi
 
+# The Alpine root filesystem the payload mounts as its real root. It is built
+# from a pinned minirootfs and a pinned apk-tools-static binary, both checked
+# against constants, and populated without root: apk's --usermode/--no-chown
+# keeps the build host's uid out of the way, and mke2fs -d writes the tree into
+# a filesystem image. The package list is what the phase 6 check needs: OpenRC
+# to boot, libva and the Gen7 i965 driver for vainfo.
+step "build Alpine root filesystem"
+ALPINE_VERSION=3.24.4
+ALPINE_BRANCH=v3.24
+ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/$ALPINE_BRANCH"
+ALPINE_MINIROOTFS_SHA256=cdaa38cb8de3537967ee5b6c9b6cd00cc962da2b018e6eea48696bb274923012
+ALPINE_APK_TOOLS=apk-tools-static-3.0.9-r0.apk
+ALPINE_APK_TOOLS_SHA256=0a1a0682375f66a83b7b903f6e4638ccfe312547d50d336b5f2be9fc391281be
+ALPINE_PACKAGES="alpine-base libva libva-intel-driver libva-utils"
+ALPINE_CACHE="$LINUX_CACHE/alpine-$ALPINE_VERSION"
+ALPINE_ROOT="$ALPINE_CACHE/rootfs"
+ALPINE_IMAGE="$BUILD_DIR/alpine.img"
+ALPINE_SECTORS=$((512 * 2048))         # 512 MiB for the root filesystem
+ROOT_START=$((BOOT_SECTORS + DATA_SECTORS))
+if ! command -v "$MKE2FS" >/dev/null 2>&1; then
+  echo "error: mke2fs (e2fsprogs) is required to build the Alpine rootfs" >&2
+  echo "       apt-get install e2fsprogs" >&2
+  exit 1
+fi
+
+mkdir -p "$ALPINE_CACHE"
+ALPINE_MINIROOTFS="$ALPINE_CACHE/alpine-minirootfs-$ALPINE_VERSION-x86_64.tar.gz"
+if [ ! -f "$ALPINE_MINIROOTFS" ]; then
+  echo "downloading alpine-minirootfs-$ALPINE_VERSION into $ALPINE_CACHE" >&2
+  curl -fsSL -o "$ALPINE_MINIROOTFS.part" \
+    "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_BRANCH/releases/x86_64/alpine-minirootfs-$ALPINE_VERSION-x86_64.tar.gz"
+  mv "$ALPINE_MINIROOTFS.part" "$ALPINE_MINIROOTFS"
+fi
+echo "$ALPINE_MINIROOTFS_SHA256  $ALPINE_MINIROOTFS" | sha256sum -c --quiet -
+
+ALPINE_APK_ARCHIVE="$ALPINE_CACHE/$ALPINE_APK_TOOLS"
+if [ ! -f "$ALPINE_APK_ARCHIVE" ]; then
+  curl -fsSL -o "$ALPINE_APK_ARCHIVE.part" \
+    "$ALPINE_MIRROR/main/x86_64/$ALPINE_APK_TOOLS"
+  mv "$ALPINE_APK_ARCHIVE.part" "$ALPINE_APK_ARCHIVE"
+fi
+echo "$ALPINE_APK_TOOLS_SHA256  $ALPINE_APK_ARCHIVE" | sha256sum -c --quiet -
+
+if [ ! -x "$ALPINE_CACHE/apk.static" ]; then
+  rm -rf "$ALPINE_CACHE/apk-extract"
+  mkdir -p "$ALPINE_CACHE/apk-extract"
+  tar -xzf "$ALPINE_APK_ARCHIVE" -C "$ALPINE_CACHE/apk-extract"
+  cp "$ALPINE_CACHE/apk-extract/sbin/apk.static" "$ALPINE_CACHE/apk.static"
+  chmod +x "$ALPINE_CACHE/apk.static"
+fi
+
+ROOTFS_STAMP=$(printf '%s\n' "$ALPINE_VERSION" "$ALPINE_PACKAGES" | \
+  sha256sum | cut -d' ' -f1)
+if [ ! -f "$ALPINE_CACHE/.rootfs-$ROOTFS_STAMP" ]; then
+  echo "populating the Alpine rootfs" >&2
+  rm -rf "$ALPINE_ROOT"
+  mkdir -p "$ALPINE_ROOT"
+  tar -xzf "$ALPINE_MINIROOTFS" -C "$ALPINE_ROOT" --exclude='./dev/*'
+  "$ALPINE_CACHE/apk.static" add --root "$ALPINE_ROOT" --usermode --no-chown \
+    --no-progress \
+    --repository "$ALPINE_MIRROR/main" \
+    --repository "$ALPINE_MIRROR/community" \
+    $ALPINE_PACKAGES
+  rm -f "$ALPINE_CACHE/.rootfs-"*
+  touch "$ALPINE_CACHE/.rootfs-$ROOTFS_STAMP"
+fi
+
+# COM1 is the board's debug console, so it drops into a root shell without a
+# login prompt. This is a bench image, not a deployed system.
+cat > "$ALPINE_ROOT/etc/inittab" <<'EOF'
+::sysinit:/sbin/openrc sysinit
+::sysinit:/sbin/openrc boot
+::wait:/sbin/openrc default
+tty1::respawn:/sbin/getty 38400 tty1
+ttyS0::respawn:/bin/sh -l
+::ctrlaltdel:/sbin/reboot
+::shutdown:/sbin/openrc shutdown
+EOF
+
+cat > "$ALPINE_ROOT/etc/fstab" <<'EOF'
+proc      /proc proc      defaults 0 0
+sysfs     /sys  sysfs     defaults 0 0
+devtmpfs  /dev  devtmpfs  defaults 0 0
+tmpfs     /tmp  tmpfs     defaults 0 0
+EOF
+
+echo bmx > "$ALPINE_ROOT/etc/hostname"
+mkdir -p "$ALPINE_ROOT/etc/profile.d"
+echo 'export LIBVA_DRIVER_NAME=i965' > "$ALPINE_ROOT/etc/profile.d/bmx-va.sh"
+
+# busybox-suid installs bbsuid execute-only, and mke2fs -d runs unprivileged, so
+# it cannot read the file to copy it. The image drops into a root shell and never
+# uses su, so a readable copy is enough.
+chmod 0755 "$ALPINE_ROOT/bin/bbsuid" 2>/dev/null || true
+
+rm -f "$ALPINE_IMAGE"
+"$MKE2FS" -q -t ext4 -b 4096 -d "$ALPINE_ROOT" "$ALPINE_IMAGE" 512M
+
 # One image for one disk. The board has a single SATA port, so the boot record,
-# stage 2, the kernel and the filesystem the kernel reads all live in the same
+# stage 2, the kernel and the filesystems the kernel reads all live in the same
 # sector space. The gate attaches this file alone on every path, which is the
 # same layout a real board sees.
 step "assemble the disk image"
 DISK_IMAGE="$BUILD_DIR/disk.img"
 rm -f "$DISK_IMAGE"
-truncate -s $(( (BOOT_SECTORS + DATA_SECTORS) * 512 )) "$DISK_IMAGE"
+truncate -s $(( (BOOT_SECTORS + DATA_SECTORS + ALPINE_SECTORS) * 512 )) "$DISK_IMAGE"
 
 dd if="$BUILD_DIR/stage1.bin" of="$DISK_IMAGE" bs=512 seek=0 \
    conv=notrunc status=none
@@ -374,19 +473,27 @@ dd if="$BUILD_DIR/kernel.bin" of="$DISK_IMAGE" bs=512 \
    seek=$((1 + STAGE2_SECTORS)) conv=notrunc status=none
 dd if="$DATA_IMAGE" of="$DISK_IMAGE" bs=512 seek="$BOOT_SECTORS" \
    conv=notrunc status=none
+dd if="$ALPINE_IMAGE" of="$DISK_IMAGE" bs=512 seek="$ROOT_START" \
+   conv=notrunc status=none
 
-# The partition table is written into the boot sector, which build.sh owns: only
-# the build knows where the volume starts. Entry 1 describes the FAT32 volume;
-# the other three stay empty. No slot is active on purpose, so a BIOS runs this
-# boot code instead of the volume's boot sector.
-mbr_entry 0x0C "$BOOT_SECTORS" "$DATA_SECTORS" > "$BUILD_DIR/mbr-entry.bin"
-dd if="$BUILD_DIR/mbr-entry.bin" of="$DISK_IMAGE" bs=1 seek=446 \
+# The disk signature and the partition table are written into the boot sector,
+# which build.sh owns: only the build knows the layout and the signature the
+# kernel command line names. Entry 1 is the FAT32 volume, entry 2 the Alpine
+# root; the other two stay empty. No slot is active on purpose, so a BIOS runs
+# this boot code instead of a volume's boot sector.
+le32 0x424D5836 | dd of="$DISK_IMAGE" bs=1 seek=440 conv=notrunc status=none
+mbr_entry 0x0C "$BOOT_SECTORS" "$DATA_SECTORS" > "$BUILD_DIR/mbr-entry1.bin"
+dd if="$BUILD_DIR/mbr-entry1.bin" of="$DISK_IMAGE" bs=1 seek=446 \
+   conv=notrunc status=none
+mbr_entry 0x83 "$ROOT_START" "$ALPINE_SECTORS" > "$BUILD_DIR/mbr-entry2.bin"
+dd if="$BUILD_DIR/mbr-entry2.bin" of="$DISK_IMAGE" bs=1 seek=462 \
    conv=notrunc status=none
 
 printf '\nkernel.bin    %s bytes (limit %s)\n' "$kernel_size" "$KERNEL_LIMIT"
 printf 'init          %s bytes\n' "$(stat -c %s "$BUILD_DIR/init")"
 printf 'INITRD        %s bytes\n' "$(stat -c %s "$BUILD_DIR/INITRD")"
 printf 'bzImage       %s bytes\n' "$(stat -c %s "$BUILD_DIR/bzImage")"
+printf 'alpine.img    %s bytes\n' "$(stat -c %s "$ALPINE_IMAGE")"
 printf 'disk.img      %s bytes\n' "$(stat -c %s "$DISK_IMAGE")"
 if [ -f "$BUILD_DIR/uefi/BOOTX64.EFI" ]; then
   printf 'BOOTX64.EFI   %s bytes\n' "$(stat -c %s "$BUILD_DIR/uefi/BOOTX64.EFI")"
