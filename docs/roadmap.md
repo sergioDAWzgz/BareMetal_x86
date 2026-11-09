@@ -145,16 +145,18 @@ open until the board itself says which one it uses.
       the table instead of assuming LBA 0; the gate boots that single file on the
       BIOS, q35 and UEFI paths
 - [x] write `build/disk.img` to a SATA or mSATA disk and boot the JNF3A from it
-- [ ] re-test the board after the spurious IRQ7 fix: the 8259 reports "nothing to
-      deliver" as vector 39, the kernel now tells it apart by reading the in-service
-      register and masks any other unclaimed line, and the gate raises the vector on
-      every path, but the board has not run the fixed image yet
+- [x] re-test the board after the spurious IRQ7 fix: the second boot printed
+      `irq: spurious IRQ7 ignored`, both exceptions resumed and the payload jumped
 - [x] read typed input from COM1 as well as the 8042, so bring-up does not depend
       on a PS/2 keyboard the board does not list; the UART loopback self-test runs
       on every gate path
-- [ ] confirm on the board that typing into COM1 reaches the echo loop
-- [ ] confirm BIOS settings: legacy vs UEFI boot, SATA mode, COM1 transmission mode
-- [ ] confirm the serial cable pinout for the internal COM headers
+- [x] confirm on the board that typing into COM1 reaches the echo loop, with a
+      null-modem cable: a straight-through cable carries the board's output but
+      never delivers input, because both ends are DTE
+- [x] confirm the firmware and port settings the boot relies on: UEFI boot, AHCI
+      SATA mode and COM1 at 115200 8N1
+- [ ] confirm the pinout of the three internal RS-232 headers; the external COM1
+      is the one tested so far
 - [ ] document the recovery path for a machine that fails to boot
 - [ ] provide the real root filesystem, since the initramfs only proves the handoff:
       a distribution on the disk carrying `libva` and the Intel driver
@@ -169,3 +171,8 @@ ignored, both exceptions resumed, AHCI found the volume on port 1 and the payloa
 jumped. A USB keyboard produced nothing, because the firmware stops emulating it
 at `ExitBootServices` and the kernel has no USB stack; the echo loop now reads
 COM1 as well, and `irq_self_test` raises vector 39 on every path.
+
+COM1 is the board's debug console: the firmware, our kernel and the Linux payload
+all print there. Input needs a null-modem cable, because the board and a USB-serial
+adapter are both DTE, so TX and RX have to cross. A straight-through cable is
+enough to watch the boot and never enough to type into it.

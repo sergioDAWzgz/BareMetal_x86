@@ -125,6 +125,13 @@ handoff, and the kernel has no USB stack of its own. The UART's loopback path is
 exercised by a self-test on every gate run; typing into a terminal is the board
 check.
 
+COM1 is the debug console at 115200 8N1, no flow control. Connect it with a
+**null-modem cable**: the board and a USB-serial adapter are both DTE, so TX and
+RX have to cross. A straight-through cable shows the boot log and never delivers
+input, which looks exactly like a kernel that ignores the keyboard. The echo loop
+prints `kbd: serial bytes N` when it leaves, so a count of zero after typing says
+the bytes never reached the UART, not that they were decoded wrong.
+
 ### How ACPI is found
 
 The two firmware families do not publish the root pointer the same way, so the

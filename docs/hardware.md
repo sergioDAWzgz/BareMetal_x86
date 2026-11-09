@@ -45,6 +45,8 @@ block is only reachable from Linux through the `i915` driver and VA-API.
 ## What this means for the project
 
 - Serial console exists (COM1), so early bring-up never depends on graphics.
+  COM1 is the board's debug console at 115200 8N1 and needs a null-modem cable
+  from a DTE host: TX and RX must cross, or the log appears without input.
 - The iGPU is Gen7 (Ivy Bridge generation, 4 EUs). Intel publishes Gen7 PRMs, but
   a from-scratch driver plus VA-API stack is a multi-year effort. Own-kernel video
   output will be a linear framebuffer only.
