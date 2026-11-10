@@ -273,14 +273,21 @@ bmx-decode
 
 It prints `vainfo`, then decodes the clip twice: once through
 `/dev/dri/renderD128` and once in software, with the shell's `time` around each.
-The hardware pass should show a much smaller user+sys time; that difference is the
-proof that the Gen7 block did the decode. The script needs `/sys` mounted, which
-the inittab already does. The clip is downloaded and checked against a sha256 at
-build time, so booting the image needs no network.
+The hardware pass keeps frames in GPU memory (`-hwaccel_output_format vaapi`), so
+the system time is the frame path, not a download. The difference in user+sys time
+is the proof that the Gen7 block did the decode. The script needs `/sys` mounted,
+which the inittab already does. The clip is downloaded and checked against a
+sha256 at build time, so booting the image needs no network.
 
-The measurement decodes to the null muxer and needs no display. Visual playback
-would be the next step and needs a DRM-capable player such as `mpv`; the decode
-proof does not depend on it.
+Visual playback uses the same clip on the board's display through KMS/DRM:
+
+```sh
+bmx-play
+```
+
+That runs `mpv --vo=gpu --gpu-context=drm --hwdec=vaapi`; the rootfs carries
+`mpv` and `mesa-dri-gallium` for the display path, with no X11 or Wayland. The
+decode measurement does not need a display; `bmx-play` is the visual check.
 
 ## Writing the image to a disk
 

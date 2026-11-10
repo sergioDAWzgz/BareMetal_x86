@@ -171,9 +171,10 @@ open until the board itself says which one it uses.
 - [x] prove the Gen7 block decodes 1080p: `bmx-decode` measured 12.97 CPU-s
       (5.04 user + 7.93 sys) through VA-API against 44.24 CPU-s (43.65 + 0.59)
       in software on the N2807, 3.4x less CPU time and 2.8x less average load
-- [ ] make the playback path zero-copy and real-time: the VA-API pass still spends
-      7.93 s in the kernel/frame path and 19 s of wall time for a 10 s clip is not
-      smooth playback; a DRM player with `-hwaccel_output_format vaapi` is next
+- [ ] re-measure and confirm real-time playback: `bmx-decode` now keeps frames in
+      GPU memory (`-hwaccel_output_format vaapi`) and `bmx-play` runs mpv on
+      KMS/DRM; the first measurement was 12.97 CPU-s against 44.24 in software, and
+      19 s of wall time for a 10 s clip. The board re-run is pending
 
 The first boot on the board used the UEFI path and reached the exception demo:
 ACPI found its ten tables, PCI enumerated fifteen devices and the PIT ticked. It

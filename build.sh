@@ -371,7 +371,7 @@ ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/$ALPINE_BRANCH"
 ALPINE_MINIROOTFS_SHA256=cdaa38cb8de3537967ee5b6c9b6cd00cc962da2b018e6eea48696bb274923012
 ALPINE_APK_TOOLS=apk-tools-static-3.0.9-r0.apk
 ALPINE_APK_TOOLS_SHA256=0a1a0682375f66a83b7b903f6e4638ccfe312547d50d336b5f2be9fc391281be
-ALPINE_PACKAGES="alpine-base ffmpeg libva libva-intel-driver libva-utils"
+ALPINE_PACKAGES="alpine-base ffmpeg libva libva-intel-driver libva-utils mesa-dri-gallium mpv"
 ALPINE_CLIP_URL="https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_1MB.mp4"
 ALPINE_CLIP_SHA256=38d763af0161e28145e6300d9a5b3b1e4a387ed8f6c4ba7ac1a5f2948d8fac51
 ALPINE_CACHE="$LINUX_CACHE/alpine-$ALPINE_VERSION"
@@ -479,6 +479,11 @@ if [ -f /root/bmx-1080p.mp4 ]; then
 else
     echo "bmx: 1080p clip missing"
 fi
+if command -v mpv >/dev/null 2>&1; then
+    echo "bmx: mpv ready"
+else
+    echo "bmx: mpv missing"
+fi
 EOF
 
 cat > "$ALPINE_ROOT/usr/local/bin/bmx-decode" <<'EOF'
@@ -487,7 +492,7 @@ set -e
 # Decode the bundled 1080p H.264 clip twice: once through VA-API and once in
 # software. The user and system times are the proof that the Gen7 block did the
 # work instead of the CPU, so a failed hardware pass must stop the script rather
-# than look like a fast one.
+# than look like a fast one. The hardware pass keeps frames in GPU memory.
 CLIP=/root/bmx-1080p.mp4
 if [ ! -f "$CLIP" ]; then
     echo "bmx-decode: $CLIP is missing"
@@ -504,9 +509,10 @@ if ! grep -E 'Driver version|VAProfileH264' /tmp/bmx-vainfo.txt; then
     echo "bmx-decode: vainfo did not report the i965 H.264 profiles"
     exit 1
 fi
-echo "== hardware decode (VA-API) =="
+echo "== hardware decode (VA-API, zero copy) =="
 time ffmpeg -hide_banner -loglevel error -hwaccel vaapi \
-    -hwaccel_device /dev/dri/renderD128 -i "$CLIP" -f null - || {
+    -hwaccel_output_format vaapi -hwaccel_device /dev/dri/renderD128 \
+    -i "$CLIP" -c:v wrapped_avframe -f null - || {
     echo "bmx-decode: hardware decode failed"
     exit 1
 }
@@ -516,8 +522,24 @@ time ffmpeg -hide_banner -loglevel error -i "$CLIP" -f null - || {
     exit 1
 }
 EOF
+
+cat > "$ALPINE_ROOT/usr/local/bin/bmx-play" <<'EOF'
+#!/bin/sh
+set -e
+# Play the clip on the board's display through KMS/DRM, with VA-API decode and
+# no X11 or Wayland in the path.
+CLIP=/root/bmx-1080p.mp4
+if [ ! -f "$CLIP" ]; then
+    echo "bmx-play: $CLIP is missing"
+    exit 1
+fi
+export LIBVA_DRIVER_NAME=${LIBVA_DRIVER_NAME:-i965}
+exec mpv --no-config --vo=gpu --gpu-context=drm --drm-device=/dev/dri/card0 \
+    --hwdec=vaapi --no-audio --fs --really-quiet "$CLIP"
+EOF
 chmod +x "$ALPINE_ROOT/usr/local/bin/bmx-check" \
-         "$ALPINE_ROOT/usr/local/bin/bmx-decode"
+         "$ALPINE_ROOT/usr/local/bin/bmx-decode" \
+         "$ALPINE_ROOT/usr/local/bin/bmx-play"
 
 # busybox-suid installs bbsuid execute-only, and mke2fs -d runs unprivileged, so
 # it cannot read the file to copy it. The image drops into a root shell and never

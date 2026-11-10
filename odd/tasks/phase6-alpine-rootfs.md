@@ -55,3 +55,9 @@ CPU-seconds over 19.02 s wall; software used 43.65 + 0.59 = 44.24 CPU-seconds ov
 did the decode. The 7.93 s of system time and the 19 s wall time for a 10 s clip
 mean the frame path is not zero-copy and not real-time; a DRM player with
 `-hwaccel_output_format vaapi` is the next step.
+
+L6: The rootfs now installs mpv 0.41 and `mesa-dri-gallium` and ships `bmx-play`,
+which runs mpv on KMS/DRM with `--hwdec=vaapi` and no X11 or Wayland. `bmx-decode`
+keeps the hardware frames in GPU memory with `-hwaccel_output_format vaapi`, and
+`bmx-check` also asserts that mpv is present. The rootfs is 419 MB inside the
+512 MB partition. The board re-measurement is pending.

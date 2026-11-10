@@ -139,6 +139,7 @@ common_assertions() {
   grep -q 'serial: loopback self-test passed'   "$log" || fail "$label: the UART receive path failed its loopback test"
   grep -q 'bmx: vaapi ffmpeg ready'             "$log" || fail "$label: ffmpeg was not built with VA-API"
   grep -q 'bmx: 1080p clip present'             "$log" || fail "$label: the 1080p clip is missing from the rootfs"
+  grep -q 'bmx: mpv ready'                      "$log" || fail "$label: mpv is missing from the rootfs"
   grep -q 'kbd: controller ready'               "$log" || fail "$label: 8042 controller was not initialised"
   grep -q 'Phase 3 complete'                    "$log" || fail "$label: phase 3 did not complete"
   grep -q 'mbr: partition table self-test passed' "$log" \
