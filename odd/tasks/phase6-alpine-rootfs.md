@@ -48,3 +48,10 @@ L4: The rootfs now carries `ffmpeg` with VA-API, a pinned 1080p H.264 clip at
 decode of the same clip. `bmx-check` prints whether ffmpeg has VA-API and whether
 the clip is present; the gate asserts both lines. The CPU-load measurement itself
 is the remaining board test.
+
+L5: Board measurement on the N2807: VA-API used 5.04 user + 7.93 sys = 12.97
+CPU-seconds over 19.02 s wall; software used 43.65 + 0.59 = 44.24 CPU-seconds over
+22.94 s. That is 3.4x less CPU time and 2.8x less average load, so the Gen7 block
+did the decode. The 7.93 s of system time and the 19 s wall time for a 10 s clip
+mean the frame path is not zero-copy and not real-time; a DRM player with
+`-hwaccel_output_format vaapi` is the next step.

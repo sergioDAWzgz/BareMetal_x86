@@ -168,7 +168,12 @@ open until the board itself says which one it uses.
 - [x] put `ffmpeg` with VA-API and a pinned 1080p H.264 clip in the rootfs, with
       `bmx-decode` comparing hardware and software decode; the gate asserts both
       are present
-- [ ] play 1080p H.264 and measure the CPU load to prove the block is doing the work
+- [x] prove the Gen7 block decodes 1080p: `bmx-decode` measured 12.97 CPU-s
+      (5.04 user + 7.93 sys) through VA-API against 44.24 CPU-s (43.65 + 0.59)
+      in software on the N2807, 3.4x less CPU time and 2.8x less average load
+- [ ] make the playback path zero-copy and real-time: the VA-API pass still spends
+      7.93 s in the kernel/frame path and 19 s of wall time for a 10 s clip is not
+      smooth playback; a DRM player with `-hwaccel_output_format vaapi` is next
 
 The first boot on the board used the UEFI path and reached the exception demo:
 ACPI found its ten tables, PCI enumerated fifteen devices and the PIT ticked. It
@@ -186,6 +191,8 @@ enough to watch the boot and never enough to type into it.
 
 The image now boots Alpine: the payload mounts the ext4 root by PARTUUID, OpenRC
 starts and COM1 gives a root shell. The gate proves OpenRC starts on the BIOS, q35
-and UEFI paths; the ttyS0 shell was checked by hand. `vainfo` now reports the i965
-driver and the H.264 decode entrypoints on the board, so the remaining phase 6 item
-is the 1080p playback and CPU load measurement.
+and UEFI paths; the ttyS0 shell was checked by hand. `vainfo` reports the i965
+driver and the H.264 decode entrypoints, and `bmx-decode` proved the Gen7 block
+does the 1080p decode: 12.97 CPU-seconds against 44.24 in software. The remaining
+phase 6 work is the zero-copy playback path, the recovery procedure and the
+internal serial headers.
