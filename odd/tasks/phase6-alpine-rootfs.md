@@ -35,3 +35,10 @@ L1: "Alpine" - the user chose Alpine for the real rootfs over Debian.
 L2: A direct-kernel QEMU test mounted the Alpine ext4 image and ran OpenRC with a
 root shell on ttyS0. `root=PARTUUID=424d5836-01` resolved to `sda1`, which confirms
 the signature format before wiring partition 2.
+
+L3: On the board, `vainfo` failed with "failed to initialize display" until
+`mount -t sysfs sysfs /sys` was run by hand. The rootfs's OpenRC runlevels are
+empty, so nothing mounted sysfs; libva's DRM display calls `drmGetNodeTypeFromFd`,
+which reads `/sys/dev/char/226:128/device/drm`. The inittab now mounts sysfs before
+OpenRC. With sysfs mounted, the i965 driver reports H.264 High/Main/
+ConstrainedBaseline/StereoHigh `VAEntrypointVLD` on the Bay Trail GPU.

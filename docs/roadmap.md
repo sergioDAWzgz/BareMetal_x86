@@ -162,7 +162,9 @@ open until the board itself says which one it uses.
       built from a pinned minirootfs with `libva`, `libva-intel-driver` and
       `libva-utils`; the payload mounts it by PARTUUID and the gate reaches OpenRC
       on the BIOS, q35 and UEFI paths
-- [ ] run `vainfo` on the board and confirm it reports the H.264 decode entrypoint
+- [x] run `vainfo` on the board: the i965 driver (Intel Bay Trail, 2.4.1) reports
+      H.264 High, Main, ConstrainedBaseline and StereoHigh with `VAEntrypointVLD`;
+      libva needs `/sys` mounted, which the inittab now does before OpenRC
 - [ ] play 1080p H.264 and measure the CPU load to prove the block is doing the work
 
 The first boot on the board used the UEFI path and reached the exception demo:
@@ -181,5 +183,6 @@ enough to watch the boot and never enough to type into it.
 
 The image now boots Alpine: the payload mounts the ext4 root by PARTUUID, OpenRC
 starts and COM1 gives a root shell. The gate proves OpenRC starts on the BIOS, q35
-and UEFI paths; the ttyS0 shell was checked by hand. `vainfo` is the next board
-check, and the Gen7 i965 driver is already in the root filesystem.
+and UEFI paths; the ttyS0 shell was checked by hand. `vainfo` now reports the i965
+driver and the H.264 decode entrypoints on the board, so the remaining phase 6 item
+is the 1080p playback and CPU load measurement.

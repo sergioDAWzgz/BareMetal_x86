@@ -216,8 +216,11 @@ root (`--usermode --no-chown`) with `alpine-base`, `libva`,
 writes the tree into a 512 MiB ext4 image. The serial console is an automatic
 root shell (`ttyS0::respawn:/bin/sh -l`) and `/etc/profile.d/bmx-va.sh` selects
 the i965 driver, so `vainfo` can be run as soon as the board reaches the prompt.
-Because the build runs unprivileged, the files in the image belong to the build
-user rather than root; init runs as root and the bench shell reads them anyway.
+The inittab mounts sysfs before OpenRC: libva's DRM display asks the kernel for the
+node type through `/sys`, and without it `vainfo` reports that no display could be
+initialized. Because the build runs unprivileged, the files in the image belong to
+the build user rather than root; init runs as root and the bench shell reads them
+anyway.
 
 **Where it is built.** Not in this checkout. The kernel `Makefile` aborts with
 `*** source directory cannot contain spaces or colons.`, and this repository lives

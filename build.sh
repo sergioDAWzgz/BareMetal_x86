@@ -426,8 +426,11 @@ if [ ! -f "$ALPINE_CACHE/.rootfs-$ROOTFS_STAMP" ]; then
 fi
 
 # COM1 is the board's debug console, so it drops into a root shell without a
-# login prompt. This is a bench image, not a deployed system.
+# login prompt. This is a bench image, not a deployed system. sysfs is mounted
+# here because the empty OpenRC runlevels leave it to the services, and libva's
+# DRM display cannot classify the render node without /sys.
 cat > "$ALPINE_ROOT/etc/inittab" <<'EOF'
+::sysinit:/bin/mount -t sysfs sysfs /sys
 ::sysinit:/sbin/openrc sysinit
 ::sysinit:/sbin/openrc boot
 ::wait:/sbin/openrc default
