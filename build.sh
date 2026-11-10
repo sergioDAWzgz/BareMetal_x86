@@ -534,8 +534,9 @@ if [ ! -f "$CLIP" ]; then
     exit 1
 fi
 export LIBVA_DRIVER_NAME=${LIBVA_DRIVER_NAME:-i965}
-exec mpv --no-config --vo=gpu --gpu-context=drm --drm-device=/dev/dri/card0 \
-    --hwdec=vaapi --no-audio --fs --really-quiet "$CLIP"
+exec mpv --no-config --profile=fast --vo=gpu --gpu-context=drm \
+    --drm-device=/dev/dri/card0 --hwdec=vaapi --hwdec-software-fallback=no \
+    --osd-level=0 --no-audio --fs --msg-level=all=warn "$CLIP"
 EOF
 chmod +x "$ALPINE_ROOT/usr/local/bin/bmx-check" \
          "$ALPINE_ROOT/usr/local/bin/bmx-decode" \

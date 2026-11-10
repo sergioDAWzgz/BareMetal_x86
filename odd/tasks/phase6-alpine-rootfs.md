@@ -69,3 +69,11 @@ That is 19.8x less CPU time and 4.2x faster than real time. `bmx-play` reports
 177 of 600 frames on the 60 fps clip, so the DRM/GL display path is the remaining
 bottleneck. `VT_GETMODE failed: Not a tty` and the fontconfig warning are cosmetic
 on a COM1 console.
+
+L8: The three follow-ups are addressed. `bmx-play` now uses `--profile=fast`,
+`--osd-level=0` and `--hwdec-software-fallback=no`, so the display path is cheaper
+and a VA-API failure stops playback instead of falling back to software; the
+60 fps board re-test is pending. The internal COM headers are documented from the
+Jetway `G03-NF3A-F` manual page 18: 9-pin block, pin 1 DCD, 2 RXD, 3 TXD, 4 DTR,
+5 GND, 6 DSR, 7 RTS, 8 CTS, 9 RI, with RS-422/485 on the COM1 header only.
+`docs/recovery.md` documents the known-good image and the reflash procedure.

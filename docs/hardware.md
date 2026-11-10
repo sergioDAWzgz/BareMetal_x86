@@ -55,8 +55,32 @@ block is only reachable from Linux through the `i915` driver and VA-API.
 - Therefore the roadmap splits into a bare-metal core (this repository's kernel) and
   a Linux payload booted by the same loader (see `docs/roadmap.md`, phase 5).
 
+## Serial headers
+
+The board has four internal 9-pin COM headers (COM1-COM4) plus the external COM1
+DB9. The Jetway manual (`G03-NF3A-F`, page 18) defines the internal block:
+
+| Pin | RS-232 | RS-422 (COM1 header) | RS-485 (COM1 header) |
+| --- | --- | --- | --- |
+| 1 | DCD | TX- | DATA- |
+| 2 | RXD | TX+ | DATA+ |
+| 3 | TXD | RX+ | NC |
+| 4 | DTR | RX- | NC |
+| 5 | GND | GND | GND |
+| 6 | DSR | NC | NC |
+| 7 | RTS | NC | NC |
+| 8 | CTS | NC | NC |
+| 9 | RI | NC | NC |
+
+Only the COM1 header carries RS-422/485; the BIOS "Transmission Mode Select" picks
+the mode. JP6 selects the pin-9 function on COM1 (RI, 5V or 12V), and JP3/JP4/JP5
+do the same for COM4/COM3/COM2. The block is a 2x5 header: confirm pin 1 on the
+silkscreen before wiring. The console used by this project is the external COM1
+DB9, wired with a null-modem cable at 115200 8N1.
+
 ## Sources
 
 - Jetway JNF3A series datasheet (jetwayipc.com / jetwaycomputer.com)
+- Jetway G03-NF3A-F technical manual (serial headers and BIOS options)
 - Intel ARK: Celeron N2930 (SKU 81073), Celeron N2807
 - Intel Open Source Graphics Programmer's Reference Manual, Gen7

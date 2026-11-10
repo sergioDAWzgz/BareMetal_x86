@@ -155,9 +155,11 @@ open until the board itself says which one it uses.
       never delivers input, because both ends are DTE
 - [x] confirm the firmware and port settings the boot relies on: UEFI boot, AHCI
       SATA mode and COM1 at 115200 8N1
-- [ ] confirm the pinout of the three internal RS-232 headers; the external COM1
-      is the one tested so far
-- [ ] document the recovery path for a machine that fails to boot
+- [x] document the internal serial headers from the Jetway manual (`G03-NF3A-F`,
+      page 18): 9-pin block, DCD/RXD/TXD/DTR/GND/DSR/RTS/CTS/RI, with RS-422/485 on
+      the COM1 header only; confirm pin 1 on the silkscreen before wiring
+- [x] document the recovery path in `docs/recovery.md`: keep a known-good image,
+      read COM1 first, and reflash the raw disk from another machine
 - [x] provide the real root filesystem: Alpine 3.24 on a 512 MiB ext4 partition,
       built from a pinned minirootfs with `libva`, `libva-intel-driver` and
       `libva-utils`; the payload mounts it by PARTUUID and the gate reaches OpenRC
@@ -175,9 +177,9 @@ open until the board itself says which one it uses.
       CPU-s (1.21 user + 1.03 sys) over 2.40 s against 44.32 CPU-s (43.68 + 0.64)
       over 22.98 s in software, 19.8x less CPU and 4.2x faster than real time;
       `bmx-play` decodes with VA-API on KMS/DRM
-- [ ] make the 1080p60 display path keep up: `bmx-play` drops 177 of 600 frames at
-      60 fps because the DRM/GL output is the bottleneck, not the decode; 30 fps
-      content and the decode proof are unaffected
+- [ ] re-check the 1080p60 display path: `bmx-play` now uses `--profile=fast` and
+      refuses the software fallback; the first run dropped 177 of 600 frames, so
+      the display/render path is the limit, not the decode
 
 The first boot on the board used the UEFI path and reached the exception demo:
 ACPI found its ten tables, PCI enumerated fifteen devices and the PIT ticked. It

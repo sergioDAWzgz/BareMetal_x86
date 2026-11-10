@@ -315,8 +315,9 @@ FAT32 volume, so a board can be tried in either mode without rebuilding anything
 
 ## Documentation
 
-- `docs/hardware.md` - verified JNF3A and Bay Trail-M specifications, and what they
-  imply for drivers
+- `docs/hardware.md` - verified JNF3A and Bay Trail-M specifications, the serial
+  header pinout, and what they imply for drivers
+- `docs/recovery.md` - how to recover a board whose disk no longer boots
 - `docs/roadmap.md` - phases, with the video decoding constraint on Gen7 graphics
 
 ## License
