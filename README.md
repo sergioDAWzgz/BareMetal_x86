@@ -289,6 +289,11 @@ That runs `mpv --vo=gpu --gpu-context=drm --hwdec=vaapi`; the rootfs carries
 `mpv` and `mesa-dri-gallium` for the display path, with no X11 or Wayland. The
 decode measurement does not need a display; `bmx-play` is the visual check.
 
+On the JNF3A the zero-copy decode measured 2.24 CPU-seconds against 44.32 in
+software (19.8x less) and ran 4.2x faster than real time. `mpv` plays 1080p60
+through KMS/DRM with VA-API but drops about 30% of frames at 60 fps, so the
+display path, not the decode, is the remaining limit.
+
 ## Writing the image to a disk
 
 `build/disk.img` is a complete disk: the MBR, the loader, the kernel, a 64 MiB

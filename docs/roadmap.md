@@ -171,10 +171,13 @@ open until the board itself says which one it uses.
 - [x] prove the Gen7 block decodes 1080p: `bmx-decode` measured 12.97 CPU-s
       (5.04 user + 7.93 sys) through VA-API against 44.24 CPU-s (43.65 + 0.59)
       in software on the N2807, 3.4x less CPU time and 2.8x less average load
-- [ ] re-measure and confirm real-time playback: `bmx-decode` now keeps frames in
-      GPU memory (`-hwaccel_output_format vaapi`) and `bmx-play` runs mpv on
-      KMS/DRM; the first measurement was 12.97 CPU-s against 44.24 in software, and
-      19 s of wall time for a 10 s clip. The board re-run is pending
+- [x] re-measure and confirm real-time playback: the zero-copy pass measured 2.24
+      CPU-s (1.21 user + 1.03 sys) over 2.40 s against 44.32 CPU-s (43.68 + 0.64)
+      over 22.98 s in software, 19.8x less CPU and 4.2x faster than real time;
+      `bmx-play` decodes with VA-API on KMS/DRM
+- [ ] make the 1080p60 display path keep up: `bmx-play` drops 177 of 600 frames at
+      60 fps because the DRM/GL output is the bottleneck, not the decode; 30 fps
+      content and the decode proof are unaffected
 
 The first boot on the board used the UEFI path and reached the exception demo:
 ACPI found its ten tables, PCI enumerated fifteen devices and the PIT ticked. It
@@ -193,7 +196,7 @@ enough to watch the boot and never enough to type into it.
 The image now boots Alpine: the payload mounts the ext4 root by PARTUUID, OpenRC
 starts and COM1 gives a root shell. The gate proves OpenRC starts on the BIOS, q35
 and UEFI paths; the ttyS0 shell was checked by hand. `vainfo` reports the i965
-driver and the H.264 decode entrypoints, and `bmx-decode` proved the Gen7 block
-does the 1080p decode: 12.97 CPU-seconds against 44.24 in software. The remaining
-phase 6 work is the zero-copy playback path, the recovery procedure and the
-internal serial headers.
+driver and the H.264 decode entrypoints, and the zero-copy `bmx-decode` proved the
+Gen7 block does the 1080p decode: 2.24 CPU-seconds against 44.32 in software, with
+mpv playing 1080p60 through KMS/DRM. The remaining phase 6 work is the 60 fps
+display path, the recovery procedure and the internal serial headers.

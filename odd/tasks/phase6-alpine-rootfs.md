@@ -61,3 +61,11 @@ which runs mpv on KMS/DRM with `--hwdec=vaapi` and no X11 or Wayland. `bmx-decod
 keeps the hardware frames in GPU memory with `-hwaccel_output_format vaapi`, and
 `bmx-check` also asserts that mpv is present. The rootfs is 419 MB inside the
 512 MB partition. The board re-measurement is pending.
+
+L7: Board re-measurement with zero-copy: hardware 1.21 user + 1.03 sys = 2.24
+CPU-seconds over 2.40 s; software 43.68 + 0.64 = 44.32 CPU-seconds over 22.98 s.
+That is 19.8x less CPU time and 4.2x faster than real time. `bmx-play` reports
+`Using hardware decoding (vaapi)` and `VO: [gpu] 1920x1080 vaapi[nv12]`; it drops
+177 of 600 frames on the 60 fps clip, so the DRM/GL display path is the remaining
+bottleneck. `VT_GETMODE failed: Not a tty` and the fontconfig warning are cosmetic
+on a COM1 console.
