@@ -294,6 +294,11 @@ software (19.8x less) and ran 4.2x faster than real time. `mpv` plays 1080p60
 through KMS/DRM with VA-API but drops about 30% of frames at 60 fps, so the
 display path, not the decode, is the remaining limit.
 
+`bmx-check` runs before OpenRC and the gate asserts its lines: ffmpeg advertises
+VA-API, the clip is present, `mpv --version` really starts, and both
+`bmx-decode`/`bmx-play` are executable and pass `sh -n`. That catches a missing or
+broken script without a display; the playback itself still needs the board.
+
 ## Writing the image to a disk
 
 `build/disk.img` is a complete disk: the MBR, the loader, the kernel, a 64 MiB

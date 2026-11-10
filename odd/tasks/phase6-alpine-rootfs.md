@@ -77,3 +77,8 @@ and a VA-API failure stops playback instead of falling back to software; the
 Jetway `G03-NF3A-F` manual page 18: 9-pin block, pin 1 DCD, 2 RXD, 3 TXD, 4 DTR,
 5 GND, 6 DSR, 7 RTS, 8 CTS, 9 RI, with RS-422/485 on the COM1 header only.
 `docs/recovery.md` documents the known-good image and the reflash procedure.
+
+L9: `bmx-check` now runs `mpv --version` instead of a PATH lookup and parses both
+`bmx-decode` and `bmx-play` with `sh -n`; the gate asserts the three new markers.
+That covers the static part of the `R3-play-untested` escalation. Real playback
+still needs the board, because QEMU has no i915.

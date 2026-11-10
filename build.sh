@@ -479,11 +479,21 @@ if [ -f /root/bmx-1080p.mp4 ]; then
 else
     echo "bmx: 1080p clip missing"
 fi
-if command -v mpv >/dev/null 2>&1; then
+if ! command -v mpv >/dev/null 2>&1; then
+    echo "bmx: mpv missing"
+elif mpv --version >/dev/null 2>&1; then
     echo "bmx: mpv ready"
 else
-    echo "bmx: mpv missing"
+    echo "bmx: mpv broken"
 fi
+for script in /usr/local/bin/bmx-decode /usr/local/bin/bmx-play; do
+    name=${script##*/}
+    if [ -x "$script" ] && sh -n "$script"; then
+        echo "bmx: $name ready"
+    else
+        echo "bmx: $name broken"
+    fi
+done
 EOF
 
 cat > "$ALPINE_ROOT/usr/local/bin/bmx-decode" <<'EOF'
