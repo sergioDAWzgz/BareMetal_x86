@@ -262,6 +262,26 @@ device, so the roadmap line "`vainfo` reports the H.264 decode entrypoint" is a
 phase 6 hardware assertion. Phase 5 is done when the payload reaches a userspace
 process on the BIOS, q35 and UEFI paths, and nothing here claims QEMU decoded video.
 
+## Video decode on the board
+
+The root filesystem carries `ffmpeg` built with VA-API and a pinned 1080p H.264
+clip at `/root/bmx-1080p.mp4`. Run:
+
+```sh
+bmx-decode
+```
+
+It prints `vainfo`, then decodes the clip twice: once through
+`/dev/dri/renderD128` and once in software, with the shell's `time` around each.
+The hardware pass should show a much smaller user+sys time; that difference is the
+proof that the Gen7 block did the decode. The script needs `/sys` mounted, which
+the inittab already does. The clip is downloaded and checked against a sha256 at
+build time, so booting the image needs no network.
+
+The measurement decodes to the null muxer and needs no display. Visual playback
+would be the next step and needs a DRM-capable player such as `mpv`; the decode
+proof does not depend on it.
+
 ## Writing the image to a disk
 
 `build/disk.img` is a complete disk: the MBR, the loader, the kernel, a 64 MiB

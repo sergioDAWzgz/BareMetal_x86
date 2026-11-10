@@ -371,8 +371,11 @@ ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/$ALPINE_BRANCH"
 ALPINE_MINIROOTFS_SHA256=cdaa38cb8de3537967ee5b6c9b6cd00cc962da2b018e6eea48696bb274923012
 ALPINE_APK_TOOLS=apk-tools-static-3.0.9-r0.apk
 ALPINE_APK_TOOLS_SHA256=0a1a0682375f66a83b7b903f6e4638ccfe312547d50d336b5f2be9fc391281be
-ALPINE_PACKAGES="alpine-base libva libva-intel-driver libva-utils"
+ALPINE_PACKAGES="alpine-base ffmpeg libva libva-intel-driver libva-utils"
+ALPINE_CLIP_URL="https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_1MB.mp4"
+ALPINE_CLIP_SHA256=38d763af0161e28145e6300d9a5b3b1e4a387ed8f6c4ba7ac1a5f2948d8fac51
 ALPINE_CACHE="$LINUX_CACHE/alpine-$ALPINE_VERSION"
+ALPINE_CLIP="$ALPINE_CACHE/bmx-1080p.mp4"
 ALPINE_ROOT="$ALPINE_CACHE/rootfs"
 ALPINE_IMAGE="$BUILD_DIR/alpine.img"
 ALPINE_SECTORS=$((512 * 2048))         # 512 MiB for the root filesystem
@@ -431,6 +434,7 @@ fi
 # DRM display cannot classify the render node without /sys.
 cat > "$ALPINE_ROOT/etc/inittab" <<'EOF'
 ::sysinit:/bin/mount -t sysfs sysfs /sys
+::sysinit:/usr/local/bin/bmx-check
 ::sysinit:/sbin/openrc sysinit
 ::sysinit:/sbin/openrc boot
 ::wait:/sbin/openrc default
@@ -450,6 +454,70 @@ EOF
 echo bmx > "$ALPINE_ROOT/etc/hostname"
 mkdir -p "$ALPINE_ROOT/etc/profile.d"
 echo 'export LIBVA_DRIVER_NAME=i965' > "$ALPINE_ROOT/etc/profile.d/bmx-va.sh"
+
+# The 1080p H.264 clip and the scripts that measure the decode. The clip is
+# small, pinned by digest, and lives in the root filesystem so the board test
+# does not need a network.
+if [ ! -f "$ALPINE_CLIP" ]; then
+  echo "downloading the 1080p H.264 clip into $ALPINE_CACHE" >&2
+  curl -fsSL -o "$ALPINE_CLIP.part" "$ALPINE_CLIP_URL"
+  mv "$ALPINE_CLIP.part" "$ALPINE_CLIP"
+fi
+echo "$ALPINE_CLIP_SHA256  $ALPINE_CLIP" | sha256sum -c --quiet -
+mkdir -p "$ALPINE_ROOT/root" "$ALPINE_ROOT/usr/local/bin"
+cp "$ALPINE_CLIP" "$ALPINE_ROOT/root/bmx-1080p.mp4"
+
+cat > "$ALPINE_ROOT/usr/local/bin/bmx-check" <<'EOF'
+#!/bin/sh
+if ffmpeg -hide_banner -hwaccels 2>/dev/null | grep -q vaapi; then
+    echo "bmx: vaapi ffmpeg ready"
+else
+    echo "bmx: ffmpeg lacks vaapi"
+fi
+if [ -f /root/bmx-1080p.mp4 ]; then
+    echo "bmx: 1080p clip present"
+else
+    echo "bmx: 1080p clip missing"
+fi
+EOF
+
+cat > "$ALPINE_ROOT/usr/local/bin/bmx-decode" <<'EOF'
+#!/bin/sh
+set -e
+# Decode the bundled 1080p H.264 clip twice: once through VA-API and once in
+# software. The user and system times are the proof that the Gen7 block did the
+# work instead of the CPU, so a failed hardware pass must stop the script rather
+# than look like a fast one.
+CLIP=/root/bmx-1080p.mp4
+if [ ! -f "$CLIP" ]; then
+    echo "bmx-decode: $CLIP is missing"
+    exit 1
+fi
+export LIBVA_DRIVER_NAME=${LIBVA_DRIVER_NAME:-i965}
+echo "== vainfo =="
+if ! vainfo > /tmp/bmx-vainfo.txt 2>&1; then
+    echo "bmx-decode: vainfo failed"
+    cat /tmp/bmx-vainfo.txt
+    exit 1
+fi
+if ! grep -E 'Driver version|VAProfileH264' /tmp/bmx-vainfo.txt; then
+    echo "bmx-decode: vainfo did not report the i965 H.264 profiles"
+    exit 1
+fi
+echo "== hardware decode (VA-API) =="
+time ffmpeg -hide_banner -loglevel error -hwaccel vaapi \
+    -hwaccel_device /dev/dri/renderD128 -i "$CLIP" -f null - || {
+    echo "bmx-decode: hardware decode failed"
+    exit 1
+}
+echo "== software decode =="
+time ffmpeg -hide_banner -loglevel error -i "$CLIP" -f null - || {
+    echo "bmx-decode: software decode failed"
+    exit 1
+}
+EOF
+chmod +x "$ALPINE_ROOT/usr/local/bin/bmx-check" \
+         "$ALPINE_ROOT/usr/local/bin/bmx-decode"
 
 # busybox-suid installs bbsuid execute-only, and mke2fs -d runs unprivileged, so
 # it cannot read the file to copy it. The image drops into a root shell and never

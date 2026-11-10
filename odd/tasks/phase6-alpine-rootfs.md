@@ -42,3 +42,9 @@ empty, so nothing mounted sysfs; libva's DRM display calls `drmGetNodeTypeFromFd
 which reads `/sys/dev/char/226:128/device/drm`. The inittab now mounts sysfs before
 OpenRC. With sysfs mounted, the i965 driver reports H.264 High/Main/
 ConstrainedBaseline/StereoHigh `VAEntrypointVLD` on the Bay Trail GPU.
+
+L4: The rootfs now carries `ffmpeg` with VA-API, a pinned 1080p H.264 clip at
+`/root/bmx-1080p.mp4`, and `bmx-decode`, which times a VA-API decode and a software
+decode of the same clip. `bmx-check` prints whether ffmpeg has VA-API and whether
+the clip is present; the gate asserts both lines. The CPU-load measurement itself
+is the remaining board test.

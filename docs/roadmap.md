@@ -165,6 +165,9 @@ open until the board itself says which one it uses.
 - [x] run `vainfo` on the board: the i965 driver (Intel Bay Trail, 2.4.1) reports
       H.264 High, Main, ConstrainedBaseline and StereoHigh with `VAEntrypointVLD`;
       libva needs `/sys` mounted, which the inittab now does before OpenRC
+- [x] put `ffmpeg` with VA-API and a pinned 1080p H.264 clip in the rootfs, with
+      `bmx-decode` comparing hardware and software decode; the gate asserts both
+      are present
 - [ ] play 1080p H.264 and measure the CPU load to prove the block is doing the work
 
 The first boot on the board used the UEFI path and reached the exception demo:
