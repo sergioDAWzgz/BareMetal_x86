@@ -57,18 +57,19 @@ reachable, 3b is input and firmware tables.
 - [x] 8x8 font rendering on the framebuffer, with the serial and VGA console
       mirrored onto it, cursor, wrapping and scrolling
 - [x] PS/2 keyboard: 8042 init, scancode set 1 decoding with shift, caps lock and
-      control, an IRQ1-driven character queue and a line echo loop
+      control, an IRQ1-driven character queue and a line echo loop (the loop was
+      removed in phase 6, because it waited 30 s for input before booting Linux)
 - [x] ACPI table discovery: RSDP from the EBDA/ROM scan on BIOS and from the UEFI
       configuration table, then the XSDT/RSDT walk, MADT (local APIC, IO APICs,
       interrupt source overrides) and MCFG (PCIe ECAM window)
 - [ ] SMBus/`i2c` for the ALC888S codec, if it turns out to be needed in 5b
 
 Gate: the kernel lists the JNF3A's RTL8111H and ALC888S and draws on the real
-display. PCI enumeration, drawing and typing are already proven in QEMU on both
-paths; the gate injects real keystrokes through the emulated 8042 and asserts the
-line the kernel echoes back. ACPI is proven three ways: the BIOS scan, the UEFI
-configuration table, and a q35 boot that publishes MCFG so the ECAM parse is
-exercised instead of skipped.
+display. PCI enumeration, drawing and typing were proven in QEMU on both paths
+while the echo loop existed; since phase 6 the gate keeps the pure scancode
+self-test, the 8042 init and the assertion that the Linux handoff opens tty0. ACPI
+is proven three ways: the BIOS scan, the UEFI configuration table, and a q35 boot
+that publishes MCFG so the ECAM parse is exercised instead of skipped.
 
 ## Phase 4 - storage and userspace (done)
 
@@ -177,6 +178,14 @@ open until the board itself says which one it uses.
       CPU-s (1.21 user + 1.03 sys) over 2.40 s against 44.32 CPU-s (43.68 + 0.64)
       over 22.98 s in software, 19.8x less CPU and 4.2x faster than real time;
       `bmx-play` decodes with VA-API on KMS/DRM
+- [x] make the board's own console the normal one: i915 and fbcon paint tty0 on
+      the monitor, the payload builds the input stack (`evdev`, `mousedev`,
+      `atkbd`, `usbhid`), tty1 is a root shell and `gpm` gives the text console
+      its mouse; COM1 stays the debug channel
+- [x] remove the 30 s keyboard/serial echo loop: the kernel enters the payload as
+      soon as the demos finish, so the boot waits for nothing but the payload's
+      own decompression; the gate keeps the scancode self-test, the 8042 init and
+      a check that the handoff opens tty0
 - [ ] re-check the 1080p60 display path: `bmx-play` now uses `--profile=fast` and
       refuses the software fallback; the first run dropped 177 of 600 frames, so
       the display/render path is the limit, not the decode
@@ -186,19 +195,28 @@ ACPI found its ten tables, PCI enumerated fifteen devices and the PIT ticked. It
 then halted on vector 39, an interrupt QEMU never raises, so the emulated gate
 could not have caught it. The second boot confirmed the fix: the spurious line was
 ignored, both exceptions resumed, AHCI found the volume on port 1 and the payload
-jumped. A USB keyboard produced nothing, because the firmware stops emulating it
-at `ExitBootServices` and the kernel has no USB stack; the echo loop now reads
-COM1 as well, and `irq_self_test` raises vector 39 on every path.
+jumped. A USB keyboard produced nothing in the bare-metal stage, because the
+firmware stops emulating it at `ExitBootServices` and the kernel has no USB stack
+of its own; that is why the boot-time echo loop also read COM1.
+`irq_self_test` raises vector 39 on every path.
 
-COM1 is the board's debug console: the firmware, our kernel and the Linux payload
-all print there. Input needs a null-modem cable, because the board and a USB-serial
-adapter are both DTE, so TX and RX have to cross. A straight-through cable is
-enough to watch the boot and never enough to type into it.
+COM1 reports the firmware, our kernel and the Linux payload, and it is the only
+channel that shows a failure before Linux is up, so it remains the debug console.
+Input there needs a null-modem cable, because the board and a USB-serial adapter
+are both DTE, so TX and RX have to cross. A straight-through cable is enough to
+watch the boot and never enough to type into it.
+
+Phase 6 removed the boot-time echo loop. The kernel now enters the payload as soon
+as the storage demos finish instead of waiting 30 seconds for a keystroke, and the
+interactive console is Linux's: i915 modesets the panel, fbcon paints tty0, and a
+USB keyboard and mouse work through `usbhid`/`evdev`/`mousedev`, with `gpm` for
+console selection. tty1 is a root shell on the monitor and ttyS0 is still a root
+shell on COM1 for debugging.
 
 The image now boots Alpine: the payload mounts the ext4 root by PARTUUID, OpenRC
-starts and COM1 gives a root shell. The gate proves OpenRC starts on the BIOS, q35
-and UEFI paths; the ttyS0 shell was checked by hand. `vainfo` reports the i965
-driver and the H.264 decode entrypoints, and the zero-copy `bmx-decode` proved the
-Gen7 block does the 1080p decode: 2.24 CPU-seconds against 44.32 in software, with
-mpv playing 1080p60 through KMS/DRM. The remaining phase 6 work is the 60 fps
-display path, the recovery procedure and the internal serial headers.
+starts on the BIOS, q35 and UEFI paths, and the gate asserts that the handoff
+names `tty0` and that the running kernel created `/dev/tty0` and
+`/dev/input/mice`. `vainfo` reports the i965 driver and the H.264 decode
+entrypoints, and the zero-copy `bmx-decode` proved the Gen7 block does the 1080p
+decode: 2.24 CPU-seconds against 44.32 in software, with mpv playing 1080p60
+through KMS/DRM. The remaining phase 6 work is the 60 fps display path.

@@ -54,3 +54,27 @@ CONFIG_RELOCATABLE=y
 # (libelf-dev). That is why nothing here tries to dodge objtool any more, and why
 # the unwinder and the speculation mitigations are left at their defaults: a
 # payload built like an ordinary kernel is the point.
+
+# The board's own console. i915 modesets the panel and fbcon paints the virtual
+# terminals on it, so a monitor plus a USB keyboard and mouse are enough to use
+# the system without opening COM1. linuxboot.c still lists ttyS0 last, so
+# /dev/console and the gate keep reading the serial line.
+CONFIG_DRM_FBDEV_EMULATION=y
+CONFIG_FRAMEBUFFER_CONSOLE=y
+CONFIG_FRAMEBUFFER_CONSOLE_DETECT_PRIMARY=y
+
+# Input for that console. defconfig already builds the USB stack in (modules are
+# off), but the local console depends on these, so the dependency is pinned here
+# instead of resting on a default that a defconfig bump could drop. evdev feeds
+# applications; mousedev is /dev/input/mice, which gpm reads.
+CONFIG_INPUT_EVDEV=y
+CONFIG_INPUT_MOUSEDEV=y
+CONFIG_KEYBOARD_ATKBD=y
+CONFIG_SERIO_I8042=y
+CONFIG_MOUSE_PS2=y
+CONFIG_USB_XHCI_HCD=y
+CONFIG_USB_XHCI_PCI=y
+CONFIG_USB_EHCI_HCD=y
+CONFIG_USB_EHCI_PCI=y
+CONFIG_USB_HID=y
+CONFIG_HID_GENERIC=y

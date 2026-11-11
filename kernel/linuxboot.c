@@ -64,9 +64,14 @@
 
 /* The real root is the Alpine ext4 partition, named by the MBR disk signature
    build.sh writes. No initramfs is passed: ext4, AHCI and the block layer are
-   built in, so the kernel mounts the root itself and runs /sbin/init. */
+   built in, so the kernel mounts the root itself and runs /sbin/init.
+
+   tty0 is the monitor's virtual console: i915 and fbcon paint it, so the
+   board's own display and a USB keyboard are the console. ttyS0 stays last
+   because the kernel maps /dev/console to the last console= listed, and that
+   is the channel the gate and the recovery procedure read. */
 static const char CMD_LINE[] =
-    "root=PARTUUID=424d5836-02 rw console=ttyS0,115200 "
+    "root=PARTUUID=424d5836-02 rw console=tty0 console=ttyS0,115200 "
     "earlyprintk=serial,ttyS0,115200";
 
 static const char *failure = "none";

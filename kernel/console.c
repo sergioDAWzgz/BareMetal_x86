@@ -34,18 +34,14 @@ static void serial_putc(char c)
 
 #define UART_LSR_DATA_READY 0x01
 
-static uint32_t serial_received;
-static uint8_t serial_last;
-
 int serial_getchar(void)
 {
     uint8_t status = inb(COM1_PORT + 5);
     uint8_t value;
 
     /* An absent or disabled UART leaves the bus floating at 0xFF, where the
-       data-ready bit is set forever. Treating that as input would feed the line
-       editor phantom bytes that reset its idle timer and keep the payload from
-       booting. */
+       data-ready bit is set forever. Treating that as input would hand every
+       caller a phantom byte for as long as it kept polling. */
     if (status == 0xFF) {
         return -1;
     }
@@ -53,11 +49,9 @@ int serial_getchar(void)
         return -1;
     }
     value = inb(COM1_PORT);
-    serial_received++;
-    serial_last = value;
 
     /* Terminals are line oriented the way a VT100 was: CR for Enter and DEL for
-       Backspace. The line editor speaks the codes the PS/2 map produces, so the
+       Backspace. The receive path speaks the codes the PS/2 map produces, so the
        transport translates instead of teaching every caller two encodings. */
     if (value == '\r') {
         return '\n';
@@ -118,22 +112,6 @@ int serial_self_test(void)
 
     outb(COM1_PORT + 4, mcr);
     return ok ? 0 : -1;
-}
-
-uint32_t serial_rx_count(void)
-{
-    return serial_received;
-}
-
-uint8_t serial_last_rx(void)
-{
-    return serial_last;
-}
-
-void serial_rx_reset(void)
-{
-    serial_received = 0;
-    serial_last = 0;
 }
 
 static uint16_t vga_cell(char c)

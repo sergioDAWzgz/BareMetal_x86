@@ -1,10 +1,14 @@
 # Recovery
 
-The board has one debug channel and no self-recovery path: the bare-metal kernel
-drives AHCI and the serial port, but it has no USB or network stack. If the image
-on the disk is wrong, the board cannot download a new one. Recovery therefore means
-rewriting the disk from another machine, or repairing one of its filesystems from
-a host that can mount it.
+The bare-metal kernel drives AHCI and the serial port, but it has no USB or
+network stack. If the image on the disk is wrong, the board cannot download a new
+one. Recovery therefore means rewriting the disk from another machine, or
+repairing one of its filesystems from a host that can mount it.
+
+Before Linux is up, COM1 is the only channel that reports a failure. Once Alpine
+starts, the board's own monitor shows the console too, so a screen with the tty1
+root shell means the image and the root filesystem are healthy; a black screen
+with COM1 still printing points at i915 or the panel.
 
 ## Keep a known-good image
 
@@ -15,7 +19,8 @@ replaced, never repaired in place.
 ## If the board does not boot
 
 1. Connect the external COM1 with the **null-modem** cable at 115200 8N1 and
-   capture the log. This is the only channel that reports a failure.
+   capture the log. Before Linux is up this is the only channel that reports a
+   failure.
 2. If `stage1:`, `stage2:` or `uefi:` lines appear, the firmware is executing the
    disk and the failure is later: the Linux payload, the root filesystem or the
    display path. The loader's last `linux:` line says how far it got.

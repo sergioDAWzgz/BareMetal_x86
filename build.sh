@@ -371,7 +371,7 @@ ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/$ALPINE_BRANCH"
 ALPINE_MINIROOTFS_SHA256=cdaa38cb8de3537967ee5b6c9b6cd00cc962da2b018e6eea48696bb274923012
 ALPINE_APK_TOOLS=apk-tools-static-3.0.9-r0.apk
 ALPINE_APK_TOOLS_SHA256=0a1a0682375f66a83b7b903f6e4638ccfe312547d50d336b5f2be9fc391281be
-ALPINE_PACKAGES="alpine-base ffmpeg libva libva-intel-driver libva-utils mesa-dri-gallium mpv"
+ALPINE_PACKAGES="alpine-base ffmpeg gpm libva libva-intel-driver libva-utils mesa-dri-gallium mpv"
 ALPINE_CLIP_URL="https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_1MB.mp4"
 ALPINE_CLIP_SHA256=38d763af0161e28145e6300d9a5b3b1e4a387ed8f6c4ba7ac1a5f2948d8fac51
 ALPINE_CACHE="$LINUX_CACHE/alpine-$ALPINE_VERSION"
@@ -428,17 +428,21 @@ if [ ! -f "$ALPINE_CACHE/.rootfs-$ROOTFS_STAMP" ]; then
   touch "$ALPINE_CACHE/.rootfs-$ROOTFS_STAMP"
 fi
 
-# COM1 is the board's debug console, so it drops into a root shell without a
-# login prompt. This is a bench image, not a deployed system. sysfs is mounted
-# here because the empty OpenRC runlevels leave it to the services, and libva's
-# DRM display cannot classify the render node without /sys.
+# Two root shells, both deliberate on a bench image: tty1 is the board's own
+# console (monitor, USB or PS/2 keyboard) and ttyS0 is the debug channel on
+# COM1, which drops straight to a shell without a login prompt. The local
+# console is the normal one; COM1 stays because it is the only channel that
+# reports a failure before Linux is up. sysfs is mounted here because the empty
+# OpenRC runlevels leave it to the services, and libva's DRM display cannot
+# classify the render node without /sys.
 cat > "$ALPINE_ROOT/etc/inittab" <<'EOF'
 ::sysinit:/bin/mount -t sysfs sysfs /sys
 ::sysinit:/usr/local/bin/bmx-check
 ::sysinit:/sbin/openrc sysinit
 ::sysinit:/sbin/openrc boot
 ::wait:/sbin/openrc default
-tty1::respawn:/sbin/getty 38400 tty1
+::once:/usr/local/bin/bmx-mouse
+tty1::respawn:/bin/sh -l
 ttyS0::respawn:/bin/sh -l
 ::ctrlaltdel:/sbin/reboot
 ::shutdown:/sbin/openrc shutdown
@@ -479,6 +483,16 @@ if [ -f /root/bmx-1080p.mp4 ]; then
 else
     echo "bmx: 1080p clip missing"
 fi
+if [ -c /dev/tty0 ]; then
+    echo "bmx: local console ready"
+else
+    echo "bmx: local console missing"
+fi
+if [ -c /dev/input/mice ] && [ -x /usr/sbin/gpm ]; then
+    echo "bmx: console mouse ready"
+else
+    echo "bmx: console mouse missing"
+fi
 if ! command -v mpv >/dev/null 2>&1; then
     echo "bmx: mpv missing"
 elif mpv --version >/dev/null 2>&1; then
@@ -494,6 +508,17 @@ for script in /usr/local/bin/bmx-decode /usr/local/bin/bmx-play; do
         echo "bmx: $name broken"
     fi
 done
+EOF
+
+cat > "$ALPINE_ROOT/usr/local/bin/bmx-mouse" <<'EOF'
+#!/bin/sh
+# gpm turns the text console's mouse into selection and paste. It is optional:
+# a board with no mouse keeps its console, so a missing device is not an error.
+# The init script starts it after OpenRC and it daemonizes on its own.
+if [ ! -c /dev/input/mice ]; then
+    exit 0
+fi
+exec /usr/sbin/gpm -m /dev/input/mice -t imps2
 EOF
 
 cat > "$ALPINE_ROOT/usr/local/bin/bmx-decode" <<'EOF'
@@ -549,6 +574,7 @@ exec mpv --no-config --profile=fast --vo=gpu --gpu-context=drm \
     --osd-level=0 --no-audio --fs --msg-level=all=warn "$CLIP"
 EOF
 chmod +x "$ALPINE_ROOT/usr/local/bin/bmx-check" \
+         "$ALPINE_ROOT/usr/local/bin/bmx-mouse" \
          "$ALPINE_ROOT/usr/local/bin/bmx-decode" \
          "$ALPINE_ROOT/usr/local/bin/bmx-play"
 

@@ -15,14 +15,6 @@ void console_dec(uint64_t value);
    translated to the codes the PS/2 map already produces. */
 int serial_getchar(void);
 
-/* Diagnostics for the receive path: how many bytes arrived since the last
-   reset, and the last raw byte. Zero after the echo loop means nothing reached
-   the UART at all; a count with a byte value points at the line or the baud
-   instead of the cable. */
-uint32_t serial_rx_count(void);
-uint8_t serial_last_rx(void);
-void serial_rx_reset(void);
-
 /* Writes and reads back through the UART's loopback path, including the CR/DEL
    translation, so the gate proves the receive side before a cable is attached.
    Returns 0 when the three bytes came back as expected. */

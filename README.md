@@ -8,12 +8,13 @@ Current state: **phase 6** - real board bring-up; the single disk image boots on
 the JNF3A. 64-bit long mode, higher-half kernel, E820 memory map,
 frame allocator, PIC/PIT, exception diagnostics, PCI enumeration, ACPI table
 discovery (RSDP, MADT, MCFG), a 1024x768x32 framebuffer driven through VBE (BIOS)
-or GOP (UEFI) with an 8x8 text console on it, a PS/2 keyboard or COM1 with a line
-echo loop, an AHCI driver, a read-only FAT32 volume, an ELF64 loader, and a user
-program that runs in ring 3 and prints through a syscall. Both boot paths run the
-same kernel. The boot chain now ends by handing the machine to a Linux kernel
-built from pinned source, which mounts a gzip initramfs and runs `/init` from it.
-See `docs/roadmap.md`.
+or GOP (UEFI) with an 8x8 text console on it, PS/2 and COM1 input, an AHCI driver,
+a read-only FAT32 volume, an ELF64 loader, and a user program that runs in ring 3
+and prints through a syscall. Both boot paths run the same kernel. The boot chain
+hands the machine to a Linux kernel built from pinned source, which mounts an
+Alpine ext4 root and runs OpenRC. After that handoff the console is the board's
+own monitor (i915 and fbcon on tty0) with a USB keyboard and mouse; COM1 remains
+the debug channel. See `docs/roadmap.md`.
 
 ## Requirements
 
@@ -55,10 +56,10 @@ source tree and the object tree live in a cache and only what changed is rebuilt
 See "The Linux payload" below for where that cache is and why it is not in the
 repository.
 
-On the BIOS path `test.sh` also drives the keyboard: it boots QEMU with a monitor
-socket and sends `hello` plus Enter through the emulated 8042, then asserts the
-line the kernel echoes back. That needs `python3`; without it the keystroke check
-is skipped and the rest still runs.
+The gate boots every path to the Linux console: each one has to mount the ext4
+root and print the OpenRC banner on COM1. It also asserts that the payload names
+`tty0` in its command line and that the running kernel created `/dev/tty0` and
+`/dev/input/mice`, so the local-console path cannot silently disappear.
 
 ## Boot chain
 
@@ -82,9 +83,9 @@ There are two boot paths to the same kernel binary.
    enables interrupts, prints the memory map, initialises the frame allocator,
    probes the framebuffer, switches to an 8x8 text console drawn straight onto it,
    walks the ACPI tables, enumerates PCI, runs the storage path from AHCI to a
-   ring-3 process, then initialises the 8042 keyboard and echoes typed lines read
-   from the keyboard or COM1. After the echo loop yields it hands the machine to
-   the Linux payload.
+   ring-3 process, then initialises the 8042 keyboard. It hands the machine to
+   the Linux payload immediately; the interactive console is Linux's, not a demo
+   stage in the kernel.
 
 **UEFI** (`boot/uefi/loader.c`, `BOOTX64.EFI` on the FAT32 volume):
 
@@ -118,19 +119,19 @@ runs the MBR code instead of the volume's boot sector.
 
 ### Input
 
-The kernel reads typed lines from two places: the 8042 keyboard through IRQ1 and
-COM1 through a polled UART. The second is the practical one on the board: a USB
-keyboard is owned by the firmware until `ExitBootServices` and by Linux after the
-handoff, and the kernel has no USB stack of its own. The UART's loopback path is
-exercised by a self-test on every gate run; typing into a terminal is the board
-check.
+Before the handoff the kernel can read its own input two ways: the 8042 keyboard
+through IRQ1 and COM1 through a polled UART. Neither is a boot gate: the payload
+is entered as soon as the demos finish, so a board with nothing attached boots
+just as fast. The UART receive path is still exercised by a loopback self-test on
+every gate run.
 
-COM1 is the debug console at 115200 8N1, no flow control. Connect it with a
-**null-modem cable**: the board and a USB-serial adapter are both DTE, so TX and
-RX have to cross. A straight-through cable shows the boot log and never delivers
-input, which looks exactly like a kernel that ignores the keyboard. The echo loop
-prints `kbd: serial bytes N` when it leaves, so a count of zero after typing says
-the bytes never reached the UART, not that they were decoded wrong.
+After the handoff the console is the board's own. Linux's i915 driver modesets the
+monitor and fbcon paints the virtual terminals on it, so a USB keyboard (or the
+8042 one, when the board has it) types into tty1 and `gpm` gives the text console
+its mouse. COM1 remains the debug channel at 115200 8N1, no flow control. A
+USB-serial adapter and the board are both DTE, so the cable has to be
+**null-modem**: TX and RX cross. A straight-through cable shows the boot log and
+never delivers input.
 
 ### How ACPI is found
 
@@ -203,19 +204,23 @@ from `cdn.kernel.org` and refuses it unless the sha256 matches the constant next
 the version. It configures with `defconfig` plus `configs/linux-baytrail.fragment`
 through `merge_config.sh`, so the file lists every deviation from a generic x86_64
 kernel and a reader can audit it without diffing a 5000-line `.config` against a
-version they do not have. The fragment gives the payload an 8250 console,
-devtmpfs/tmpfs/procfs/sysfs, ELF and script `binfmt`, the AHCI and PIIX storage
-drivers, and `i915`; ext4 comes from `defconfig`. It also turns off modules (one
-self-contained image) and KASLR (the loader reports where it put the kernel and
-the gate asserts that address). Everything the root needs to mount is built in.
+version they do not have. The fragment gives the payload an 8250 console, a
+framebuffer console (`DRM_FBDEV_EMULATION`), devtmpfs/tmpfs/procfs/sysfs, ELF and
+script `binfmt`, the AHCI and PIIX storage drivers, `i915`, and the input stack
+(`evdev`, `mousedev`, `atkbd`, `usbhid`) the local console needs; ext4 comes from
+`defconfig`. It also turns off modules (one self-contained image) and KASLR (the
+loader reports where it put the kernel and the gate asserts that address).
+Everything the root needs to mount is built in.
 
 **The root filesystem.** Alpine 3.24, built from a pinned minirootfs and a pinned
 `apk-tools-static`, both checked against constants. `apk` populates it without
 root (`--usermode --no-chown`) with `alpine-base`, `libva`,
 `libva-intel-driver` (the Gen7 i965 driver) and `libva-utils`, and `mke2fs -d`
-writes the tree into a 512 MiB ext4 image. The serial console is an automatic
-root shell (`ttyS0::respawn:/bin/sh -l`) and `/etc/profile.d/bmx-va.sh` selects
-the i965 driver, so `vainfo` can be run as soon as the board reaches the prompt.
+writes the tree into a 512 MiB ext4 image. Both consoles are automatic root
+shells: tty1 on the monitor (`tty1::respawn:/bin/sh -l`) and ttyS0 on COM1, which
+preserves the debug channel. `gpm` gives the text console its mouse, and
+`/etc/profile.d/bmx-va.sh` selects the i965 driver, so `vainfo` can be run as soon
+as the board reaches the prompt.
 The inittab mounts sysfs before OpenRC: libva's DRM display asks the kernel for the
 node type through `/sys`, and without it `vainfo` reports that no display could be
 initialized. Because the build runs unprivileged, the files in the image belong to
@@ -237,9 +242,9 @@ version, and reads `pref_address`, `kernel_alignment`, `init_size` and
 `align_up(init_size, kernel_alignment)` bytes past the decompression target, which
 is what the decompressor actually writes rather than the smaller `init_size`. It
 builds a zero page carrying the E820 map and the command line
-(`root=PARTUUID=424d5836-02 rw console=ttyS0,115200`), and enters the 64-bit entry
-point through a flat GDT. The kernel mounts the root itself: ext4, AHCI and the
-block layer are built in, so no initramfs is passed.
+(`root=PARTUUID=424d5836-02 rw console=tty0 console=ttyS0,115200`), and enters the
+64-bit entry point through a flat GDT. The kernel mounts the root itself: ext4,
+AHCI and the block layer are built in, so no initramfs is passed.
 
 `type_of_loader` is still written as `0xFF` for a loader with no assigned id. It
 no longer gates an initrd unpack, because the payload receives no initrd; it is
@@ -254,8 +259,11 @@ OpenRC 0.63.2 is starting up
 ```
 
 The gate waits for the OpenRC banner and then stops QEMU, so a slow OVMF boot does
-not need a fixed timeout and a fast one does not waste it. The phase 5 initramfs
-stays in the tree as the record of that phase; the image no longer passes it.
+not need a fixed timeout and a fast one does not waste it. It also asserts that
+the handoff names `tty0` and that the booted kernel created `/dev/tty0` and
+`/dev/input/mice`, so the local console cannot silently disappear from the image.
+The phase 5 initramfs stays in the tree as the record of that phase; the image no
+longer passes it.
 
 **What QEMU cannot prove.** `i915` and VA-API need Gen7 silicon and QEMU has no such
 device, so the roadmap line "`vainfo` reports the H.264 decode entrypoint" is a

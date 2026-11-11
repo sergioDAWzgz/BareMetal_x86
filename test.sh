@@ -17,9 +17,9 @@ UEFI_SECONDS=${UEFI_SECONDS:-180}
 OVMF_CODE=${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}
 OVMF_VARS=${OVMF_VARS:-/usr/share/OVMF/OVMF_VARS_4M.fd}
 
-# The gate is only worth anything if both boot paths and the keyboard really ran.
-# BMX_ALLOW_SKIPS=1 exists for a machine that cannot run them yet (no OVMF
-# package, no python3); it downgrades those to a loud warning instead of a pass.
+# The gate is only worth anything if both boot paths really ran. BMX_ALLOW_SKIPS=1
+# exists for a machine that cannot run them yet (no OVMF package); it downgrades
+# that to a loud warning instead of a pass.
 ALLOW_SKIPS=${BMX_ALLOW_SKIPS:-0}
 
 if ! command -v "$QEMU" >/dev/null 2>&1; then
@@ -49,13 +49,6 @@ DISK_Q35=(
   -drive file=build/disk.img,format=raw,if=none,id=disk0
   -device ide-hd,drive=disk0,bootindex=1
 )
-
-SCRATCH=$(mktemp -d)
-# Cleanup must never decide the verdict. With `set -e`, a command that fails
-# inside an EXIT trap replaces the status of the script, so a green run would
-# exit 1 whenever /tmp cannot be emptied -- a red gate that says nothing about
-# the image. The assertions below are the only thing allowed to fail this file.
-trap 'rm -rf -- "$SCRATCH" || echo "WARNING: could not remove $SCRATCH" >&2' EXIT
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
@@ -142,12 +135,15 @@ common_assertions() {
   grep -q 'bmx: mpv ready'                      "$log" || fail "$label: mpv is missing or does not start"
   grep -q 'bmx: bmx-decode ready'               "$log" || fail "$label: bmx-decode is missing or does not parse"
   grep -q 'bmx: bmx-play ready'                 "$log" || fail "$label: bmx-play is missing or does not parse"
+  grep -q 'bmx: local console ready'            "$log" || fail "$label: the Linux VT is missing"
+  grep -q 'bmx: console mouse ready'            "$log" || fail "$label: the input stack did not create /dev/input/mice"
   grep -q 'kbd: controller ready'               "$log" || fail "$label: 8042 controller was not initialised"
   grep -q 'Phase 3 complete'                    "$log" || fail "$label: phase 3 did not complete"
   grep -q 'mbr: partition table self-test passed' "$log" \
     || fail "$label: the partition table decoder failed its self-test"
   grep -q 'Phase 4 complete'                    "$log" || fail "$label: phase 4 did not complete"
-  grep -q 'kbd: idle, leaving the echo loop'    "$log" || fail "$label: the keyboard demo never yielded to the payload"
+  grep -aq 'console=tty0 console=ttyS0,115200' build/kernel.bin \
+    || fail "$label: the Linux handoff does not open the local console"
   grep -q 'linux: LINUX.BIN [0-9][0-9]* bytes protocol 2\.' "$log" \
     || fail "$label: the Linux payload was not opened"
   grep -q 'linux: load 0x[0-9a-f]* init_size 0x[0-9a-f]* runtime 0x[0-9a-f]*' "$log" \
@@ -170,66 +166,11 @@ common_assertions() {
 
 # --- BIOS / legacy path ----------------------------------------------------
 LOG=build/serial-bios.log
-MONITOR="$SCRATCH/monitor.sock"
-KEYS_INJECTED=0
 rm -f "$LOG"
-
-HAVE_PYTHON=0
-if command -v python3 >/dev/null 2>&1; then
-  HAVE_PYTHON=1
-elif [ "$ALLOW_SKIPS" != 1 ]; then
-  fail 'bios: python3 is missing, the keyboard path cannot be exercised'
-fi
-
-if [ "$HAVE_PYTHON" -eq 1 ]; then
-  # Run with a monitor socket so real keystrokes can be injected through the
-  # emulated 8042, then asserted from the serial log.
-  "$QEMU" \
-    -machine pc -cpu qemu64 \
-    "${DISK_PC[@]}" \
-    -m 512 -boot c -display none -serial "file:$LOG" -no-reboot \
-    -monitor "unix:$MONITOR,server,nowait" \
-    >/dev/null 2>&1 &
-  QEMU_PID=$!
-
-  # Wait for the state the keystrokes need instead of guessing a boot time: a
-  # key delivered before the kernel reads the 8042 output buffer is dropped, so a
-  # fixed sleep is a flaky gate as the boot path grows.
-  for _ in $(seq 1 80); do
-    grep -q 'kbd: echo loop' "$LOG" 2>/dev/null && break
-    kill -0 "$QEMU_PID" 2>/dev/null || break
-    sleep 0.25
-  done
-  if ! grep -q 'kbd: echo loop' "$LOG" 2>/dev/null; then
-    kill "$QEMU_PID" 2>/dev/null || true
-    wait "$QEMU_PID" 2>/dev/null || true
-    fail 'bios: the kernel never reached its keyboard input loop'
-  fi
-
-  if ! python3 scripts/send-keys.py "$MONITOR" --settle 0 \
-       h e l l o ret >/dev/null 2>&1; then
-    fail 'bios: the keystroke injector never reached the QEMU monitor'
-  fi
-  KEYS_INJECTED=1
-
-  # The echo loop yields 30 seconds after the last keystroke and the payload
-  # starts from there, so the wait is on the root filesystem being mounted
-  # instead of a fixed sleep that would race the decompressor. The shell on
-  # ttyS0 never exits, so the loop kills QEMU once init is running.
-  for _ in $(seq 1 200); do
-    grep -q 'OpenRC [0-9]' "$LOG" 2>/dev/null && break
-    kill -0 "$QEMU_PID" 2>/dev/null || break
-    sleep 0.5
-  done
-  kill "$QEMU_PID" 2>/dev/null || true
-  wait "$QEMU_PID" 2>/dev/null || true
-else
-  timeout "$BOOT_SECONDS" "$QEMU" \
-    -machine pc -cpu qemu64 \
-    "${DISK_PC[@]}" \
-    -m 512 -boot c -display none -serial "file:$LOG" -no-reboot \
-    >/dev/null 2>&1 || true
-fi
+run_until_openrc "$LOG" "$BOOT_SECONDS" \
+  -machine pc -cpu qemu64 \
+  "${DISK_PC[@]}" \
+  -m 512 -boot c
 
 echo '--- serial output (BIOS) ---'
 cat "$LOG"
@@ -244,13 +185,7 @@ grep -q 'mode=1024x768x32'                     "$LOG" || fail 'bios: VBE mode is
 grep -Eq 'acpi: rsdp at .* via (ebda|bios rom)' "$LOG" || fail 'bios: the RSDP was not found by scanning'
 common_assertions "$LOG" bios
 
-if [ "$KEYS_INJECTED" -eq 1 ]; then
-  grep -q 'kbd: typed "hello"'                 "$LOG" || fail 'bios: injected keystrokes never reached the kernel'
-else
-  echo 'WARNING: python3 is missing, keystrokes were not injected' >&2
-fi
-
-echo 'PASS: bios path reaches long mode with a framebuffer, PCI and a PS/2 keyboard'
+echo 'PASS: bios path reaches long mode with a framebuffer, PCI and a PS/2 keyboard controller'
 
 # --- Q35 path: the MCFG table only exists on a platform that publishes one ---
 LOG=build/serial-q35.log

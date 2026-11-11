@@ -24,16 +24,6 @@
 #define TIMER_HZ 100
 #define TICKS_TO_OBSERVE 10
 #define BARS_VISIBLE_TICKS TIMER_HZ
-#define KBD_LINE_MAX 96
-/* How long the echo loop waits for a keystroke before yielding to the payload.
-   The loop demonstrates the 8042 path; it is not the destination of the boot, so
-   an unattended board - and the q35 and UEFI gate paths, which inject no
-   keystrokes - still has to reach Linux. */
-#define KBD_IDLE_TICKS (30 * TIMER_HZ)
-/* A serial line that is unconnected or noisy can deliver a byte forever, and
-   every byte resets the idle timer. This caps the whole loop so the payload is
-   reached even when the input side never goes quiet. */
-#define KBD_ECHO_MAX_TICKS (60 * TIMER_HZ)
 /* The stack the CPU switches to on every interrupt taken from ring 3. Separate
    from the boot stack so a user process can never walk into kernel frames, and
    from the user stack so a deep user call chain cannot reach kernel data. */
@@ -153,80 +143,6 @@ static void keyboard_start(void)
     }
 
     console_write("kbd: controller ready, IRQ1 unmasked\n");
-}
-
-static void echo_loop_report(void)
-{
-    console_write("kbd: serial bytes ");
-    console_dec(serial_rx_count());
-    if (serial_rx_count() > 0) {
-        console_write(" last 0x");
-        console_hex_width(serial_last_rx(), 2);
-    }
-    console_write("\n");
-}
-
-static void keyboard_echo_loop(void)
-{
-    char line[KBD_LINE_MAX];
-    unsigned int length = 0;
-    uint64_t last_key = timer_ticks_get();
-    uint64_t started = timer_ticks_get();
-
-    console_write("kbd: echo loop on the keyboard or COM1, type and press enter, ");
-    console_write("esc to leave\n");
-
-    for (;;) {
-        int key = keyboard_getchar();
-
-        if (key < 0) {
-            key = serial_getchar();
-        }
-        if (key < 0) {
-            if (timer_ticks_get() - started >= KBD_ECHO_MAX_TICKS) {
-                console_write("\nkbd: echo loop time limit, leaving\n");
-                echo_loop_report();
-                return;
-            }
-            if (timer_ticks_get() - last_key >= KBD_IDLE_TICKS) {
-                console_write("\nkbd: idle, leaving the echo loop\n");
-                echo_loop_report();
-                return;
-            }
-            __asm__ volatile("hlt");
-            continue;
-        }
-
-        last_key = timer_ticks_get();
-
-        if (key == KEY_ESCAPE) {
-            console_write("\nkbd: escape received, leaving the echo loop\n");
-            return;
-        }
-
-        if (key == KEY_ENTER) {
-            line[length] = '\0';
-            console_write("\nkbd: typed \"");
-            console_write(line);
-            console_write("\"\n");
-            length = 0;
-            continue;
-        }
-
-        if (key == KEY_BACKSPACE) {
-            if (length > 0) {
-                length--;
-                console_write("\b \b");
-            }
-            continue;
-        }
-
-        if (length + 1 < sizeof(line)) {
-            line[length] = (char)key;
-            length++;
-            console_putc((char)key);
-        }
-    }
 }
 
 /* Phase 4: the storage path from the SATA port to a user process. Each step
@@ -429,9 +345,6 @@ void kmain(void)
     } else {
         console_write("serial: loopback self-test passed\n");
     }
-    /* The loopback bytes are the test's own traffic, not input; start the
-       receive count the echo loop reports from zero. */
-    serial_rx_reset();
 
     keyboard_start();
 
@@ -450,11 +363,9 @@ void kmain(void)
     phase4();
     console_write("Phase 4 complete.\n");
 
-    /* The echo loop runs first and yields after a few seconds without a key, so
-       the keyboard path stays proven on the one gate path that can inject
-       keystrokes without holding the payload for every other path. */
-    keyboard_echo_loop();
-
+    /* No interactive stage between the demos and the payload: the board boots
+       straight to Linux, whose console is the monitor on tty0 plus a USB
+       keyboard and mouse. COM1 stays a debug channel, not a required input. */
     if (linux_payload_boot() != 0) {
         console_write("linux: ");
         console_write(linux_payload_error());

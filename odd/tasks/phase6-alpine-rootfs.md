@@ -11,14 +11,19 @@ q35 and UEFI paths.
 - S2: the MBR disk signature is `0x424D5836`, so the payload can name the root as
   `PARTUUID=424d5836-02`.
 - S3: the payload command line is
-  `root=PARTUUID=424d5836-02 rw console=ttyS0,115200` and no initramfs is passed.
+  `root=PARTUUID=424d5836-02 rw console=tty0 console=ttyS0,115200` and no
+  initramfs is passed; ttyS0 is last so `/dev/console` stays on COM1.
 - S4: the rootfs is Alpine `3.24.4`, built from the pinned minirootfs and
-  `apk-tools-static`, with `alpine-base`, `libva`, `libva-intel-driver` and
-  `libva-utils`; the serial console gives a root shell at 115200 8N1.
+  `apk-tools-static`, with `alpine-base`, `gpm`, `libva`, `libva-intel-driver`
+  and `libva-utils`; tty1 gives a root shell on the monitor and ttyS0 a root
+  shell on COM1 at 115200 8N1.
 - S5: `./test.sh` asserts `VFS: Mounted root (ext4 filesystem)`,
   `Run /sbin/init as init process` and `OpenRC` on all three paths.
 - S6: the board boots to the Alpine shell on COM1; `vainfo` is the next hardware
   check, not a QEMU assertion.
+- S7: the kernel enters the payload without waiting for input, and Linux builds
+  the local console: i915 + fbcon on tty0, USB keyboard and mouse through
+  `usbhid`/`evdev`/`mousedev`, and `gpm` on the text console.
 
 ## Tasks
 
@@ -27,6 +32,7 @@ q35 and UEFI paths.
 - T3 boot the root without an initramfs - inline - done (1c92cd9)
 - T4 update the gate assertions and timing - inline - done (1c92cd9)
 - T5 update README and roadmap - inline - done (1c92cd9)
+- T6 local console and instant boot - inline - done (this commit)
 
 ## Log
 
@@ -82,3 +88,19 @@ L9: `bmx-check` now runs `mpv --version` instead of a PATH lookup and parses bot
 `bmx-decode` and `bmx-play` with `sh -n`; the gate asserts the three new markers.
 That covers the static part of the `R3-play-untested` escalation. Real playback
 still needs the board, because QEMU has no i915.
+
+L10: "Perfecto. ¿Podrías hacer que la consola se pudiera utilizar desde la propia
+placa conectada a un monitor con teclado y ratón, en vez de a través del puerto
+debug? Elimina también los 30 segundos de espera para recibir input a través del
+puerto debug: que el arranque sea instantáneo"
+
+The payload command line opens tty0 and keeps ttyS0 last, so the kernel also
+paints the monitor while `/dev/console` and the gate stay on COM1. The fragment
+enables `DRM_FBDEV_EMULATION`/`FRAMEBUFFER_CONSOLE` and pins
+evdev/mousedev/atkbd/usbhid, so i915 + fbcon give a local text console and a USB
+keyboard and mouse work. The rootfs adds `gpm`, tty1 is a root shell on the
+monitor, ttyS0 remains the COM1 debug shell, and `bmx-check` reports
+`local console ready` and `console mouse ready`. The 30 s echo loop and the
+serial receive counters are gone: the kernel enters the payload as soon as the
+demos finish. The gate drops the keystroke injection and asserts the `tty0`
+string in the handoff plus the two new boot markers.
