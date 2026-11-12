@@ -128,10 +128,11 @@ every gate run.
 After the handoff the console is the board's own. Linux's i915 driver modesets the
 monitor and fbcon paints the virtual terminals on it, so a USB keyboard (or the
 8042 one, when the board has it) types into tty1 and `gpm` gives the text console
-its mouse. COM1 remains the debug channel at 115200 8N1, no flow control. A
-USB-serial adapter and the board are both DTE, so the cable has to be
-**null-modem**: TX and RX cross. A straight-through cable shows the boot log and
-never delivers input.
+its mouse. Both console shells start in root's home: `bmx-shell` sets `HOME=/root`
+and enters it before starting the login shell. COM1 remains the debug channel at
+115200 8N1, no flow control. A USB-serial adapter and the board are both DTE, so
+the cable has to be **null-modem**: TX and RX cross. A straight-through cable
+shows the boot log and never delivers input.
 
 ### How ACPI is found
 
@@ -206,9 +207,10 @@ through `merge_config.sh`, so the file lists every deviation from a generic x86_
 kernel and a reader can audit it without diffing a 5000-line `.config` against a
 version they do not have. The fragment gives the payload an 8250 console, a
 framebuffer console (`DRM_FBDEV_EMULATION`), devtmpfs/tmpfs/procfs/sysfs, ELF and
-script `binfmt`, the AHCI and PIIX storage drivers, `i915`, and the input stack
-(`evdev`, `mousedev`, `atkbd`, `usbhid`) the local console needs; ext4 comes from
-`defconfig`. It also turns off modules (one self-contained image) and KASLR (the
+script `binfmt`, the AHCI and PIIX storage drivers, `i915`, the input stack
+(`evdev`, `mousedev`, `atkbd`, `usbhid`) the local console needs, and both network
+drivers (`r8169` for the board's RTL8111H, `e1000` for the QEMU gate); ext4 comes
+from `defconfig`. It also turns off modules (one self-contained image) and KASLR (the
 loader reports where it put the kernel and the gate asserts that address).
 Everything the root needs to mount is built in.
 
@@ -217,10 +219,11 @@ Everything the root needs to mount is built in.
 root (`--usermode --no-chown`) with `alpine-base`, `libva`,
 `libva-intel-driver` (the Gen7 i965 driver) and `libva-utils`, and `mke2fs -d`
 writes the tree into a 512 MiB ext4 image. Both consoles are automatic root
-shells: tty1 on the monitor (`tty1::respawn:/bin/sh -l`) and ttyS0 on COM1, which
-preserves the debug channel. `gpm` gives the text console its mouse, and
-`/etc/profile.d/bmx-va.sh` selects the i965 driver, so `vainfo` can be run as soon
-as the board reaches the prompt.
+shells: tty1 on the monitor and ttyS0 on COM1, which preserves the debug channel,
+both launched by `bmx-shell` in `/root`. `gpm` gives the text console its mouse,
+`/etc/network/interfaces` asks for DHCP on `eth0`, and `/etc/profile.d/bmx-va.sh`
+selects the i965 driver, so `vainfo` can be run as soon as the board reaches the
+prompt.
 The inittab mounts sysfs before OpenRC: libva's DRM display asks the kernel for the
 node type through `/sys`, and without it `vainfo` reports that no display could be
 initialized. Because the build runs unprivileged, the files in the image belong to
@@ -258,12 +261,16 @@ Run /sbin/init as init process
 OpenRC 0.63.2 is starting up
 ```
 
-The gate waits for the OpenRC banner and then stops QEMU, so a slow OVMF boot does
-not need a fixed timeout and a fast one does not waste it. It also asserts that
-the handoff names `tty0` and that the booted kernel created `/dev/tty0` and
-`/dev/input/mice`, so the local console cannot silently disappear from the image.
-The phase 5 initramfs stays in the tree as the record of that phase; the image no
-longer passes it.
+The BIOS path waits for the console prompt and the DHCP lease before stopping
+QEMU; q35 and UEFI stop at the OpenRC banner, so a slow OVMF boot does not need a
+fixed timeout and a fast one does not waste it. The gate asserts that the handoff
+names `tty0`, that the booted kernel created `/dev/tty0` and `/dev/input/mice`,
+that `eth0` exists, and that `bmx-shell`/`bmx-net` parse, so the local console and
+the network path cannot silently disappear from the image. The BIOS log also
+proves the shell starts in root's home (`bmx:~#`) and that DHCP configured the
+interface (`bmx: network up`). Every path attaches an `e1000` NIC, which is what
+makes `eth0` exist under QEMU. The phase 5 initramfs stays in the tree as the
+record of that phase; the image no longer passes it.
 
 **What QEMU cannot prove.** `i915` and VA-API need Gen7 silicon and QEMU has no such
 device, so the roadmap line "`vainfo` reports the H.264 decode entrypoint" is a
@@ -303,9 +310,42 @@ through KMS/DRM with VA-API but drops about 30% of frames at 60 fps, so the
 display path, not the decode, is the remaining limit.
 
 `bmx-check` runs before OpenRC and the gate asserts its lines: ffmpeg advertises
-VA-API, the clip is present, `mpv --version` really starts, and both
-`bmx-decode`/`bmx-play` are executable and pass `sh -n`. That catches a missing or
-broken script without a display; the playback itself still needs the board.
+VA-API, the clip is present, `mpv --version` really starts, the local console and
+mouse devices exist, `eth0` was created, and the `bmx-*` helpers are executable
+and pass `sh -n`. That catches a missing or broken script without a display; the
+playback itself still needs the board.
+
+## Networking
+
+The board's NIC is the RTL8111H, driven by the built-in `r8169`; the QEMU gate
+attaches an `e1000`. Both drivers are pinned in the kernel fragment, and the kernel
+already carries the IPv4 stack. The root filesystem configures `lo` and `eth0`
+from `/etc/network/interfaces`:
+
+```
+auto eth0
+iface eth0 inet dhcp
+```
+
+At boot `bmx-net` runs `ifup -a` in a background subshell, so a missing cable or
+DHCP server never delays the console. ifupdown-ng starts busybox `udhcpc`, which
+applies the lease through its default script (address, route and
+`/etc/resolv.conf`) and keeps retrying in the background. The inittab also applies
+`/etc/hostname` before OpenRC, so the system hostname is `bmx` and udhcpc sends it
+as the client name. Run:
+
+```sh
+ip addr show eth0        # the leased address
+ip route                 # the default route from DHCP
+ping -c1 1.1.1.1         # link and route
+wget -qO- http://example.com/
+```
+
+`bmx-net` prints `bmx: network up <addr>` on COM1 when the lease arrives, or
+`bmx: network down` after ten seconds without one; neither case blocks boot. The
+optional `rtl_nic` patch firmware is not used: the driver is built in and probes
+before the root filesystem is mounted, so the file could not be loaded, and basic
+link does not need it.
 
 ## Writing the image to a disk
 

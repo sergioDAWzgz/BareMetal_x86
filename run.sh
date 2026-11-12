@@ -39,6 +39,7 @@ if [ "${1:-}" = "--uefi" ]; then
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
     -drive if=pflash,format=raw,file=build/OVMF_VARS.fd \
     "${DISK[@]}" \
+    -nic user,model=e1000 \
     -display none \
     -serial stdio \
     -no-reboot \
@@ -50,6 +51,7 @@ exec qemu-system-x86_64 \
   "${DISK[@]}" \
   -m 512 \
   -boot c \
+  -nic user,model=e1000 \
   -display none \
   -serial stdio \
   -no-reboot \

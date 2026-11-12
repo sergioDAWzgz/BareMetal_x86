@@ -78,3 +78,11 @@ CONFIG_USB_EHCI_HCD=y
 CONFIG_USB_EHCI_PCI=y
 CONFIG_USB_HID=y
 CONFIG_HID_GENERIC=y
+
+# Networking. The board's NIC is the RTL8111H on PCI, driven by r8169; the QEMU
+# gate emulates an e1000 and asserts that the interface exists, so both drivers
+# are pinned instead of depending on defconfig. NET/INET come from defconfig.
+# The optional rtl_nic patch firmware is not needed for link and could not load
+# anyway: the driver is built in and probes before the root is mounted.
+CONFIG_R8169=y
+CONFIG_E1000=y

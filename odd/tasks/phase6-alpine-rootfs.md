@@ -24,6 +24,11 @@ q35 and UEFI paths.
 - S7: the kernel enters the payload without waiting for input, and Linux builds
   the local console: i915 + fbcon on tty0, USB keyboard and mouse through
   `usbhid`/`evdev`/`mousedev`, and `gpm` on the text console.
+- S8: both console shells start in `/root`, with `HOME=/root`, instead of the
+  filesystem root.
+- S9: `eth0` is configured by DHCP from `/etc/network/interfaces`, applied by
+  ifupdown-ng and busybox `udhcpc`; the network start never blocks the console,
+  and the gate asserts that the interface exists.
 
 ## Tasks
 
@@ -32,7 +37,8 @@ q35 and UEFI paths.
 - T3 boot the root without an initramfs - inline - done (1c92cd9)
 - T4 update the gate assertions and timing - inline - done (1c92cd9)
 - T5 update README and roadmap - inline - done (1c92cd9)
-- T6 local console and instant boot - inline - done (this commit)
+- T6 local console and instant boot - inline - done (8dd6bc8)
+- T7 console home and network - inline - done (this commit)
 
 ## Log
 
@@ -104,3 +110,28 @@ monitor, ttyS0 remains the COM1 debug shell, and `bmx-check` reports
 serial receive counters are gone: the kernel enters the payload as soon as the
 demos finish. The gate drops the keystroke injection and asserts the `tty0`
 string in the handoff plus the two new boot markers.
+
+L11: "Vale, perfecto. Si no supone demasiada molestia, me gustaría que el sistema
+operativo iniciara en el directorio personal del usuario «root», en lugar de la
+raíz del sistema de archivos. Además, quiero que este sistema operativo cuente
+con soporte de red en la placa."
+
+`bmx-shell` sets `HOME=/root`, enters it and execs the login shell, and both tty1
+and ttyS0 respawn through it. Networking needed no new kernel option: `R8169` and
+`E1000` were already `=y` from defconfig, so the fragment pins them. The rootfs
+configures `lo` and `eth0` with DHCP in `/etc/network/interfaces`; `bmx-net` runs
+`ifup -a` in a background subshell and prints `bmx: network up <addr>` (or
+`network down` after ten seconds) on COM1, so a missing cable cannot hold the
+console. The gate attaches `-nic user,model=e1000` on every path and asserts
+`bmx: network ready` plus `bmx: bmx-shell ready` and `bmx: bmx-net ready`. The BIOS
+path waits for `bmx:~#` and `bmx: network up` before stopping, so the console home
+and the DHCP lease are gate assertions, not only manual checks. The
+optional `rtl_nic` firmware is not packaged: a built-in driver probes before the
+root is mounted, so it cannot load there, and r8169 tolerates its absence.
+
+The first manual run exposed a pre-existing gap: nothing applied `/etc/hostname`,
+so the system was `(none)`, the prompt read `(none):/#` (busybox init leaves HOME
+unset), and ifupdown-ng used `(none)` as the DHCP hostname, which made its
+executor run `eval echo (none)` and print syntax errors (the lease still worked).
+The inittab now runs `hostname -F /etc/hostname` before OpenRC; the prompt is
+`bmx:~#` and the eval noise is gone.

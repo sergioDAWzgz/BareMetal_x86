@@ -430,22 +430,39 @@ fi
 
 # Two root shells, both deliberate on a bench image: tty1 is the board's own
 # console (monitor, USB or PS/2 keyboard) and ttyS0 is the debug channel on
-# COM1, which drops straight to a shell without a login prompt. The local
-# console is the normal one; COM1 stays because it is the only channel that
-# reports a failure before Linux is up. sysfs is mounted here because the empty
-# OpenRC runlevels leave it to the services, and libva's DRM display cannot
-# classify the render node without /sys.
+# COM1, which drops straight to a shell without a login prompt. bmx-shell puts
+# both in root's home, and bmx-net brings the network up without ever blocking
+# the console. The hostname line makes /etc/hostname real; ifupdown-ng also uses
+# the system hostname as the DHCP client name. The local console is the normal
+# one; COM1 stays because it is the only channel that reports a failure before
+# Linux is up. sysfs is mounted here because the empty OpenRC runlevels leave it
+# to the services, and libva's DRM display cannot classify the render node
+# without /sys.
 cat > "$ALPINE_ROOT/etc/inittab" <<'EOF'
 ::sysinit:/bin/mount -t sysfs sysfs /sys
+::sysinit:/bin/hostname -F /etc/hostname
 ::sysinit:/usr/local/bin/bmx-check
 ::sysinit:/sbin/openrc sysinit
 ::sysinit:/sbin/openrc boot
 ::wait:/sbin/openrc default
+::once:/usr/local/bin/bmx-net
 ::once:/usr/local/bin/bmx-mouse
-tty1::respawn:/bin/sh -l
-ttyS0::respawn:/bin/sh -l
+tty1::respawn:/usr/local/bin/bmx-shell
+ttyS0::respawn:/usr/local/bin/bmx-shell
 ::ctrlaltdel:/sbin/reboot
 ::shutdown:/sbin/openrc shutdown
+EOF
+
+# The board's NIC is the RTL8111H behind r8169 and the QEMU gate emulates an
+# e1000, so both drivers are already built in. DHCP applies the lease through
+# udhcpc's default script (address, route, /etc/resolv.conf); ifup only starts
+# it, so the interfaces file is the single place the policy lives.
+cat > "$ALPINE_ROOT/etc/network/interfaces" <<'EOF'
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet dhcp
 EOF
 
 cat > "$ALPINE_ROOT/etc/fstab" <<'EOF'
@@ -493,6 +510,11 @@ if [ -c /dev/input/mice ] && [ -x /usr/sbin/gpm ]; then
 else
     echo "bmx: console mouse missing"
 fi
+if [ -d /sys/class/net/eth0 ]; then
+    echo "bmx: network ready"
+else
+    echo "bmx: network missing"
+fi
 if ! command -v mpv >/dev/null 2>&1; then
     echo "bmx: mpv missing"
 elif mpv --version >/dev/null 2>&1; then
@@ -500,7 +522,8 @@ elif mpv --version >/dev/null 2>&1; then
 else
     echo "bmx: mpv broken"
 fi
-for script in /usr/local/bin/bmx-decode /usr/local/bin/bmx-play; do
+for script in /usr/local/bin/bmx-shell /usr/local/bin/bmx-net \
+              /usr/local/bin/bmx-decode /usr/local/bin/bmx-play; do
     name=${script##*/}
     if [ -x "$script" ] && sh -n "$script"; then
         echo "bmx: $name ready"
@@ -519,6 +542,40 @@ if [ ! -c /dev/input/mice ]; then
     exit 0
 fi
 exec /usr/sbin/gpm -m /dev/input/mice -t imps2
+EOF
+
+cat > "$ALPINE_ROOT/usr/local/bin/bmx-shell" <<'EOF'
+#!/bin/sh
+# The console opens as root in root's home, not at the filesystem root. busybox
+# init exports PATH, SHELL, USER and TERM but not HOME, so set it here and let
+# the login shell read the profile from the right place.
+HOME=/root
+export HOME
+cd "$HOME" 2>/dev/null || cd /
+exec /bin/sh -l
+EOF
+
+cat > "$ALPINE_ROOT/usr/local/bin/bmx-net" <<'EOF'
+#!/bin/sh
+# The network is best-effort: the console never waits for a cable or a DHCP
+# server. ifup configures lo and starts udhcpc, which backgrounds itself; this
+# subshell keeps even the first discovery off the boot path and reports the
+# lease to the console (COM1) when it arrives.
+(
+    ifup -a
+    i=0
+    while [ "$i" -lt 10 ]; do
+        addr=$(ip addr show dev eth0 2>/dev/null | awk '/inet /{print $2; exit}')
+        if [ -n "$addr" ]; then
+            echo "bmx: network up $addr"
+            exit 0
+        fi
+        sleep 1
+        i=$((i + 1))
+    done
+    echo "bmx: network down"
+) &
+exit 0
 EOF
 
 cat > "$ALPINE_ROOT/usr/local/bin/bmx-decode" <<'EOF'
@@ -574,6 +631,8 @@ exec mpv --no-config --profile=fast --vo=gpu --gpu-context=drm \
     --osd-level=0 --no-audio --fs --msg-level=all=warn "$CLIP"
 EOF
 chmod +x "$ALPINE_ROOT/usr/local/bin/bmx-check" \
+         "$ALPINE_ROOT/usr/local/bin/bmx-shell" \
+         "$ALPINE_ROOT/usr/local/bin/bmx-net" \
          "$ALPINE_ROOT/usr/local/bin/bmx-mouse" \
          "$ALPINE_ROOT/usr/local/bin/bmx-decode" \
          "$ALPINE_ROOT/usr/local/bin/bmx-play"

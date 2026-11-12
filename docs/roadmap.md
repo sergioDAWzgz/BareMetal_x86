@@ -186,6 +186,13 @@ open until the board itself says which one it uses.
       soon as the demos finish, so the boot waits for nothing but the payload's
       own decompression; the gate keeps the scancode self-test, the 8042 init and
       a check that the handoff opens tty0
+- [x] start the console shells in root's home: `bmx-shell` sets `HOME=/root` and
+      enters it before the login shell, on tty1 and on ttyS0
+- [x] give the board network support: `r8169` (RTL8111H) and `e1000` (the QEMU
+      gate NIC) are pinned in the payload, `/etc/network/interfaces` asks for
+      DHCP on `eth0`, and `bmx-net` runs `ifup -a` in a background subshell so
+      the console never waits for a cable; every gate path attaches an `e1000`
+      and asserts that `eth0` exists
 - [ ] re-check the 1080p60 display path: `bmx-play` now uses `--profile=fast` and
       refuses the software fallback; the first run dropped 177 of 600 frames, so
       the display/render path is the limit, not the decode
@@ -211,12 +218,22 @@ as the storage demos finish instead of waiting 30 seconds for a keystroke, and t
 interactive console is Linux's: i915 modesets the panel, fbcon paints tty0, and a
 USB keyboard and mouse work through `usbhid`/`evdev`/`mousedev`, with `gpm` for
 console selection. tty1 is a root shell on the monitor and ttyS0 is still a root
-shell on COM1 for debugging.
+shell on COM1 for debugging; `bmx-shell` starts both in `/root`.
 
-The image now boots Alpine: the payload mounts the ext4 root by PARTUUID, OpenRC
-starts on the BIOS, q35 and UEFI paths, and the gate asserts that the handoff
-names `tty0` and that the running kernel created `/dev/tty0` and
-`/dev/input/mice`. `vainfo` reports the i965 driver and the H.264 decode
-entrypoints, and the zero-copy `bmx-decode` proved the Gen7 block does the 1080p
-decode: 2.24 CPU-seconds against 44.32 in software, with mpv playing 1080p60
-through KMS/DRM. The remaining phase 6 work is the 60 fps display path.
+The image now has network support. `r8169` drives the board's RTL8111H and `e1000`
+covers the QEMU gate; `/etc/network/interfaces` asks for DHCP on `eth0`, and
+`bmx-net` runs `ifup -a` in a background subshell, so a board with no cable still
+reaches its console immediately. `udhcpc` applies the lease (address, route,
+`/etc/resolv.conf`) and keeps retrying in the background. Every gate path attaches
+an `e1000` and asserts that `eth0` exists; the DHCP lease itself is a board check.
+
+The image boots Alpine: the payload mounts the ext4 root by PARTUUID and OpenRC
+starts on the BIOS, q35 and UEFI paths. The gate asserts that the handoff names
+`tty0`, that the running kernel created `/dev/tty0`, `/dev/input/mice` and
+`eth0`, and that `bmx-shell`/`bmx-net` parse; the BIOS path additionally waits for
+the `bmx:~#` prompt and the DHCP lease, so `/root` and the network are asserted,
+not only sampled by hand. `vainfo` reports the i965 driver and
+the H.264 decode entrypoints, and the zero-copy `bmx-decode` proved the Gen7 block
+does the 1080p decode: 2.24 CPU-seconds against 44.32 in software, with mpv
+playing 1080p60 through KMS/DRM. The remaining phase 6 work is the 60 fps display
+path.

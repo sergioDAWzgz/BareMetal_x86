@@ -8,7 +8,10 @@ repairing one of its filesystems from a host that can mount it.
 Before Linux is up, COM1 is the only channel that reports a failure. Once Alpine
 starts, the board's own monitor shows the console too, so a screen with the tty1
 root shell means the image and the root filesystem are healthy; a black screen
-with COM1 still printing points at i915 or the panel.
+with COM1 still printing points at i915 or the panel. A booted board also reports
+its DHCP lease on COM1 as `bmx: network up <addr>`; `ip addr show eth0` confirms
+it, while a missing cable only prints `bmx: network down` and never blocks the
+boot.
 
 ## Keep a known-good image
 

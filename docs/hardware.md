@@ -50,6 +50,9 @@ block is only reachable from Linux through the `i915` driver and VA-API.
 - The normal console after the Linux handoff is the board's own: i915 modesets
   the monitor, fbcon paints the virtual terminals, and the 8 USB ports (1 USB 3.0
   and 7 USB 2.0, so xHCI and EHCI) carry the keyboard and mouse.
+- The RTL8111H is an ordinary PCIe NIC, so Linux's in-tree `r8169` drives it. The
+  bare-metal kernel only enumerates it; DHCP, routes and DNS live in the root
+  filesystem, so no network driver is needed before the Linux handoff.
 - The iGPU is Gen7 (Ivy Bridge generation, 4 EUs). Intel publishes Gen7 PRMs, but
   a from-scratch driver plus VA-API stack is a multi-year effort. Own-kernel video
   output will be a linear framebuffer only.

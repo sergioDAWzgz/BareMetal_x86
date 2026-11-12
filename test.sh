@@ -52,12 +52,14 @@ DISK_Q35=(
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
-# Runs QEMU until OpenRC prints its banner, then stops it. The root shell never
-# exits, so a fixed timeout would either cut a slow OVMF boot or waste the whole
-# budget after init is already up.
-run_until_openrc() {
-  local log=$1 seconds=$2
-  shift 2
+# Runs QEMU until the marker, and the optional second marker, appear in the log,
+# then stops it. The root shell never exits, so a fixed timeout would either cut
+# a slow OVMF boot or waste the whole budget after init is already up. The BIOS
+# path waits for the console prompt and the DHCP lease so both user-visible
+# behaviours are in the log; the other paths only need the OpenRC banner.
+run_until() {
+  local log=$1 seconds=$2 first=$3 second=$4
+  shift 4
 
   timeout "$seconds" "$QEMU" "$@" -display none -serial "file:$log" -no-reboot \
     >/dev/null 2>&1 &
@@ -65,7 +67,10 @@ run_until_openrc() {
   local spins=$((seconds * 2))
 
   while [ "$spins" -gt 0 ]; do
-    grep -q 'OpenRC [0-9]' "$log" 2>/dev/null && break
+    if grep -qE "$first" "$log" 2>/dev/null &&
+       { [ -z "$second" ] || grep -qE "$second" "$log" 2>/dev/null; }; then
+      break
+    fi
     kill -0 "$pid" 2>/dev/null || break
     sleep 0.5
     spins=$((spins - 1))
@@ -137,6 +142,9 @@ common_assertions() {
   grep -q 'bmx: bmx-play ready'                 "$log" || fail "$label: bmx-play is missing or does not parse"
   grep -q 'bmx: local console ready'            "$log" || fail "$label: the Linux VT is missing"
   grep -q 'bmx: console mouse ready'            "$log" || fail "$label: the input stack did not create /dev/input/mice"
+  grep -q 'bmx: network ready'                  "$log" || fail "$label: the network interface was not created"
+  grep -q 'bmx: bmx-shell ready'                "$log" || fail "$label: bmx-shell is missing or does not parse"
+  grep -q 'bmx: bmx-net ready'                  "$log" || fail "$label: bmx-net is missing or does not parse"
   grep -q 'kbd: controller ready'               "$log" || fail "$label: 8042 controller was not initialised"
   grep -q 'Phase 3 complete'                    "$log" || fail "$label: phase 3 did not complete"
   grep -q 'mbr: partition table self-test passed' "$log" \
@@ -167,10 +175,10 @@ common_assertions() {
 # --- BIOS / legacy path ----------------------------------------------------
 LOG=build/serial-bios.log
 rm -f "$LOG"
-run_until_openrc "$LOG" "$BOOT_SECONDS" \
+run_until "$LOG" "$BOOT_SECONDS" 'bmx:(~|/root)#' 'bmx: network up [0-9]' \
   -machine pc -cpu qemu64 \
   "${DISK_PC[@]}" \
-  -m 512 -boot c
+  -m 512 -boot c -nic user,model=e1000
 
 echo '--- serial output (BIOS) ---'
 cat "$LOG"
@@ -184,16 +192,20 @@ grep -q 'boot: source=bios framebuffer=0x'     "$LOG" || fail 'bios: boot info b
 grep -q 'mode=1024x768x32'                     "$LOG" || fail 'bios: VBE mode is not 1024x768x32'
 grep -Eq 'acpi: rsdp at .* via (ebda|bios rom)' "$LOG" || fail 'bios: the RSDP was not found by scanning'
 common_assertions "$LOG" bios
+grep -Eq 'bmx:(~|/root)#' "$LOG" \
+  || fail 'bios: the console shell did not start in /root'
+grep -q 'bmx: network up [0-9]' "$LOG" \
+  || fail 'bios: DHCP did not configure eth0'
 
 echo 'PASS: bios path reaches long mode with a framebuffer, PCI and a PS/2 keyboard controller'
 
 # --- Q35 path: the MCFG table only exists on a platform that publishes one ---
 LOG=build/serial-q35.log
 rm -f "$LOG"
-run_until_openrc "$LOG" "$BOOT_SECONDS" \
+run_until "$LOG" "$BOOT_SECONDS" 'OpenRC [0-9]' '' \
   -machine q35 -cpu qemu64 -m 512 \
   "${DISK_Q35[@]}" \
-  -boot c
+  -boot c -nic user,model=e1000
 
 echo '--- serial output (q35) ---'
 cat "$LOG"
@@ -224,11 +236,12 @@ fi
 cp "$OVMF_VARS" build/OVMF_VARS.fd
 LOG=build/serial-uefi.log
 rm -f "$LOG"
-run_until_openrc "$LOG" "$UEFI_SECONDS" \
+run_until "$LOG" "$UEFI_SECONDS" 'OpenRC [0-9]' '' \
   -machine pc -cpu qemu64 -m 512 \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file=build/OVMF_VARS.fd \
-  "${DISK_PC[@]}"
+  "${DISK_PC[@]}" \
+  -nic user,model=e1000
 
 echo '--- serial output (UEFI) ---'
 cat "$LOG"
