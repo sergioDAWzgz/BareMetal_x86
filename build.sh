@@ -435,11 +435,14 @@ fi
 # the console. The hostname line makes /etc/hostname real; ifupdown-ng also uses
 # the system hostname as the DHCP client name. Once OpenRC is up the console
 # loglevel drops to warnings, so runtime kernel info (NIC link up/down, driver
-# chatter) stays in dmesg instead of printing over the console. The local
-# console is the normal one; COM1 stays because it is the only channel that
-# reports a failure before Linux is up. sysfs is mounted here because the empty
-# OpenRC runlevels leave it to the services, and libva's DRM display cannot
-# classify the render node without /sys.
+# chatter) stays in dmesg instead of printing over the console. bmx-clear then
+# wipes the local VT (screen and scrollback) so tty1 opens on an empty screen;
+# COM1 keeps the whole boot log. Both are wait actions, so neither races the
+# network helpers or the shells. The local console is the normal one; COM1 stays
+# because it is the only channel that reports a failure before Linux is up.
+# sysfs is mounted here because the empty OpenRC runlevels leave it to the
+# services, and libva's DRM display cannot classify the render node without
+# /sys.
 cat > "$ALPINE_ROOT/etc/inittab" <<'EOF'
 ::sysinit:/bin/mount -t sysfs sysfs /sys
 ::sysinit:/bin/hostname -F /etc/hostname
@@ -447,7 +450,8 @@ cat > "$ALPINE_ROOT/etc/inittab" <<'EOF'
 ::sysinit:/sbin/openrc sysinit
 ::sysinit:/sbin/openrc boot
 ::wait:/sbin/openrc default
-::once:/bin/dmesg -n 5
+::wait:/bin/dmesg -n 5
+::wait:/usr/local/bin/bmx-clear
 ::once:/usr/local/bin/bmx-net
 ::once:/usr/local/bin/bmx-mouse
 tty1::respawn:/usr/local/bin/bmx-shell
@@ -536,8 +540,9 @@ elif mpv --version >/dev/null 2>&1; then
 else
     echo "bmx: mpv broken"
 fi
-for script in /usr/local/bin/bmx-shell /usr/local/bin/bmx-net \
-              /usr/local/bin/bmx-decode /usr/local/bin/bmx-play; do
+for script in /usr/local/bin/bmx-shell /usr/local/bin/bmx-clear \
+              /usr/local/bin/bmx-net /usr/local/bin/bmx-decode \
+              /usr/local/bin/bmx-play; do
     name=${script##*/}
     if [ -x "$script" ] && sh -n "$script"; then
         echo "bmx: $name ready"
@@ -567,6 +572,14 @@ HOME=/root
 export HOME
 cd "$HOME" 2>/dev/null || cd /
 exec /bin/sh -l
+EOF
+
+cat > "$ALPINE_ROOT/usr/local/bin/bmx-clear" <<'EOF'
+#!/bin/sh
+# The boot log has done its job once the shells are about to start: clear the
+# local virtual console so tty1 opens on an empty screen. COM1 keeps the full
+# log for debugging. CSI 3J flushes the VT scrollback as well as the screen.
+printf '\033[H\033[3J' > /dev/tty1
 EOF
 
 cat > "$ALPINE_ROOT/usr/local/bin/bmx-net" <<'EOF'
@@ -655,6 +668,7 @@ exec mpv --no-config --profile=fast --vo=gpu --gpu-context=drm \
 EOF
 chmod +x "$ALPINE_ROOT/usr/local/bin/bmx-check" \
          "$ALPINE_ROOT/usr/local/bin/bmx-shell" \
+         "$ALPINE_ROOT/usr/local/bin/bmx-clear" \
          "$ALPINE_ROOT/usr/local/bin/bmx-net" \
          "$ALPINE_ROOT/usr/local/bin/bmx-mouse" \
          "$ALPINE_ROOT/usr/local/bin/bmx-decode" \

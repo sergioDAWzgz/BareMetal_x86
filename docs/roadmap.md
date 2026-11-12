@@ -199,6 +199,8 @@ open until the board itself says which one it uses.
 - [x] quiet the console after boot: the inittab runs `dmesg -n 5`, so kernel
       info such as NIC link up/down events stays in the ring buffer instead of
       printing over tty0/ttyS0
+- [x] clear the local screen when the boot finishes: `bmx-clear` wipes the VT
+      (screen and scrollback) before the shells start; COM1 keeps the boot log
 - [ ] re-check the 1080p60 display path: `bmx-play` now uses `--profile=fast` and
       refuses the software fallback; the first run dropped 177 of 600 frames, so
       the display/render path is the limit, not the decode

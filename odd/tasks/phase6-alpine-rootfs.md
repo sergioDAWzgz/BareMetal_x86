@@ -168,6 +168,15 @@ assertions depend on KERN_INFO after the switch, and the BIOS path now also
 asserts that no link line appears after the prompt. The installer is a separate
 feature document.
 
+L14: "Adelante, procede con ello. Otro cambio al sistema, además: Quiero que
+cuando termine de arrancar, la salida de arranque se limpie."
+
+`bmx-clear` runs as a `::wait:` action after `dmesg -n 5` and before the once
+actions, and writes CSI 3J to `/dev/tty1`, so the VT screen and scrollback are
+empty when the shell prompt appears. `dmesg -n 5` moved from `::once:` to
+`::wait:` at the same time, which removes the scheduling race the review flagged.
+COM1 keeps the boot log. The gate asserts that `bmx-clear` parses.
+
 The first manual run exposed a pre-existing gap: nothing applied `/etc/hostname`,
 so the system was `(none)`, the prompt read `(none):/#` (busybox init leaves HOME
 unset), and ifupdown-ng used `(none)` as the DHCP hostname, which made its

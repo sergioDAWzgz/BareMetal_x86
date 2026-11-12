@@ -129,10 +129,12 @@ After the handoff the console is the board's own. Linux's i915 driver modesets t
 monitor and fbcon paints the virtual terminals on it, so a USB keyboard (or the
 8042 one, when the board has it) types into tty1 and `gpm` gives the text console
 its mouse. Both console shells start in root's home: `bmx-shell` sets `HOME=/root`
-and enters it before starting the login shell. COM1 remains the debug channel at
-115200 8N1, no flow control. A USB-serial adapter and the board are both DTE, so
-the cable has to be **null-modem**: TX and RX cross. A straight-through cable
-shows the boot log and never delivers input.
+and enters it before starting the login shell. When the shells are about to start,
+`bmx-clear` wipes the local VT (screen and scrollback), so tty1 opens on a blank
+screen; COM1 keeps the boot log. COM1 remains the debug channel at 115200 8N1,
+no flow control. A USB-serial adapter and the board are both DTE, so the cable has
+to be **null-modem**: TX and RX cross. A straight-through cable shows the boot log
+and never delivers input.
 
 ### How ACPI is found
 
@@ -271,9 +273,10 @@ that `bmx-shell`/`bmx-net` parse, so the local console and the network path cann
 silently disappear from the image. The BIOS log also proves the shell starts in
 root's home (`bmx:~#`) and that DHCP configured both interfaces
 (`bmx: network up eth0/eth1`). Every path attaches two `e1000` NICs on different
-subnets, which is what makes `eth0` and `eth1` exist under QEMU. The phase 5
-initramfs stays in the tree as the record of that phase; the image no longer
-passes it.
+subnets, which is what makes `eth0` and `eth1` exist under QEMU. The gate also
+checks that `bmx-clear` parses, though the clear itself writes to tty1 and is a
+board-visible behaviour, not a serial assertion. The phase 5 initramfs stays in
+the tree as the record of that phase; the image no longer passes it.
 
 **What QEMU cannot prove.** `i915` and VA-API need Gen7 silicon and QEMU has no such
 device, so the roadmap line "`vainfo` reports the H.264 decode entrypoint" is a
