@@ -55,7 +55,7 @@ fail() { echo "FAIL: $1" >&2; exit 1; }
 # Runs QEMU until the marker, and the optional second marker, appear in the log,
 # then stops it. The root shell never exits, so a fixed timeout would either cut
 # a slow OVMF boot or waste the whole budget after init is already up. The BIOS
-# path waits for the console prompt and the DHCP lease so both user-visible
+# path waits for the console prompt and both DHCP leases so both user-visible
 # behaviours are in the log; the other paths only need the OpenRC banner.
 run_until() {
   local log=$1 seconds=$2 first=$3 second=$4
@@ -142,7 +142,8 @@ common_assertions() {
   grep -q 'bmx: bmx-play ready'                 "$log" || fail "$label: bmx-play is missing or does not parse"
   grep -q 'bmx: local console ready'            "$log" || fail "$label: the Linux VT is missing"
   grep -q 'bmx: console mouse ready'            "$log" || fail "$label: the input stack did not create /dev/input/mice"
-  grep -q 'bmx: network ready'                  "$log" || fail "$label: the network interface was not created"
+  grep -q 'bmx: network eth0 ready'             "$log" || fail "$label: eth0 was not created"
+  grep -q 'bmx: network eth1 ready'             "$log" || fail "$label: eth1 was not created"
   grep -q 'bmx: network firmware ready'         "$log" || fail "$label: the r8169 firmware is missing from the rootfs"
   grep -q 'bmx: bmx-shell ready'                "$log" || fail "$label: bmx-shell is missing or does not parse"
   grep -q 'bmx: bmx-net ready'                  "$log" || fail "$label: bmx-net is missing or does not parse"
@@ -176,10 +177,11 @@ common_assertions() {
 # --- BIOS / legacy path ----------------------------------------------------
 LOG=build/serial-bios.log
 rm -f "$LOG"
-run_until "$LOG" "$BOOT_SECONDS" 'bmx:(~|/root)#' 'bmx: network up [0-9]' \
+run_until "$LOG" "$BOOT_SECONDS" 'bmx:(~|/root)#' 'bmx: network online' \
   -machine pc -cpu qemu64 \
   "${DISK_PC[@]}" \
-  -m 512 -boot c -nic user,model=e1000
+  -m 512 -boot c -nic user,model=e1000 \
+  -netdev user,id=n1,net=10.0.3.0/24 -device e1000,netdev=n1
 
 echo '--- serial output (BIOS) ---'
 cat "$LOG"
@@ -195,8 +197,15 @@ grep -Eq 'acpi: rsdp at .* via (ebda|bios rom)' "$LOG" || fail 'bios: the RSDP w
 common_assertions "$LOG" bios
 grep -Eq 'bmx:(~|/root)#' "$LOG" \
   || fail 'bios: the console shell did not start in /root'
-grep -q 'bmx: network up [0-9]' "$LOG" \
+grep -q 'bmx: network up eth0 [0-9]' "$LOG" \
   || fail 'bios: DHCP did not configure eth0'
+grep -q 'bmx: network up eth1 [0-9]' "$LOG" \
+  || fail 'bios: DHCP did not configure eth1'
+grep -q 'bmx: network online' "$LOG" \
+  || fail 'bios: the network never reported both interfaces online'
+if grep -q 'bmx: network down eth' "$LOG"; then
+  fail 'bios: an interface reported no DHCP lease'
+fi
 
 echo 'PASS: bios path reaches long mode with a framebuffer, PCI and a PS/2 keyboard controller'
 
@@ -206,7 +215,8 @@ rm -f "$LOG"
 run_until "$LOG" "$BOOT_SECONDS" 'OpenRC [0-9]' '' \
   -machine q35 -cpu qemu64 -m 512 \
   "${DISK_Q35[@]}" \
-  -boot c -nic user,model=e1000
+  -boot c -nic user,model=e1000 \
+  -netdev user,id=n1,net=10.0.3.0/24 -device e1000,netdev=n1
 
 echo '--- serial output (q35) ---'
 cat "$LOG"
@@ -242,7 +252,8 @@ run_until "$LOG" "$UEFI_SECONDS" 'OpenRC [0-9]' '' \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file=build/OVMF_VARS.fd \
   "${DISK_PC[@]}" \
-  -nic user,model=e1000
+  -nic user,model=e1000 \
+  -netdev user,id=n1,net=10.0.3.0/24 -device e1000,netdev=n1
 
 echo '--- serial output (UEFI) ---'
 cat "$LOG"

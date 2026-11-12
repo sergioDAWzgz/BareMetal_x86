@@ -221,7 +221,7 @@ root (`--usermode --no-chown`) with `alpine-base`, `libva`,
 writes the tree into a 512 MiB ext4 image. Both consoles are automatic root
 shells: tty1 on the monitor and ttyS0 on COM1, which preserves the debug channel,
 both launched by `bmx-shell` in `/root`. `gpm` gives the text console its mouse,
-`/etc/network/interfaces` asks for DHCP on `eth0`, the rootfs carries
+`/etc/network/interfaces` asks for DHCP on `eth0` and `eth1`, the rootfs carries
 `linux-firmware-rtl_nic` for the board's PHY patch, and
 `/etc/profile.d/bmx-va.sh` selects the i965 driver, so `vainfo` can be run as soon
 as the board reaches the prompt.
@@ -262,16 +262,18 @@ Run /sbin/init as init process
 OpenRC 0.63.2 is starting up
 ```
 
-The BIOS path waits for the console prompt and the DHCP lease before stopping
-QEMU; q35 and UEFI stop at the OpenRC banner, so a slow OVMF boot does not need a
-fixed timeout and a fast one does not waste it. The gate asserts that the handoff
-names `tty0`, that the booted kernel created `/dev/tty0` and `/dev/input/mice`,
-that `eth0` exists, and that `bmx-shell`/`bmx-net` parse, so the local console and
-the network path cannot silently disappear from the image. The BIOS log also
-proves the shell starts in root's home (`bmx:~#`) and that DHCP configured the
-interface (`bmx: network up`). Every path attaches an `e1000` NIC, which is what
-makes `eth0` exist under QEMU. The phase 5 initramfs stays in the tree as the
-record of that phase; the image no longer passes it.
+The BIOS path waits for the console prompt, both DHCP leases and the online
+summary before stopping QEMU; q35 and UEFI stop at the OpenRC banner, so a slow
+OVMF boot does not need a fixed timeout and a fast one does not waste it. The gate
+asserts that the handoff names `tty0`, that the booted kernel created `/dev/tty0`
+and `/dev/input/mice`, that `eth0` and `eth1` exist with the r8169 firmware, and
+that `bmx-shell`/`bmx-net` parse, so the local console and the network path cannot
+silently disappear from the image. The BIOS log also proves the shell starts in
+root's home (`bmx:~#`) and that DHCP configured both interfaces
+(`bmx: network up eth0/eth1`). Every path attaches two `e1000` NICs on different
+subnets, which is what makes `eth0` and `eth1` exist under QEMU. The phase 5
+initramfs stays in the tree as the record of that phase; the image no longer
+passes it.
 
 **What QEMU cannot prove.** `i915` and VA-API need Gen7 silicon and QEMU has no such
 device, so the roadmap line "`vainfo` reports the H.264 decode entrypoint" is a
@@ -318,34 +320,39 @@ playback itself still needs the board.
 
 ## Networking
 
-The board's NIC is the RTL8111H, driven by the built-in `r8169`; the QEMU gate
-attaches an `e1000`. Both drivers are pinned in the kernel fragment, and the kernel
-already carries the IPv4 stack. The root filesystem configures `lo` and `eth0`
-from `/etc/network/interfaces`:
+The board has two RTL8111H NICs, driven by the built-in `r8169`; the QEMU gate
+attaches two `e1000` devices on different subnets. Both drivers are pinned in the
+kernel fragment, and the kernel already carries the IPv4 stack. The root
+filesystem configures `lo`, `eth0` and `eth1` from `/etc/network/interfaces`:
 
 ```
 auto eth0
 iface eth0 inet dhcp
+
+auto eth1
+iface eth1 inet dhcp
 ```
 
 At boot `bmx-net` runs `ifup -a` in a background subshell, so a missing cable or
 DHCP server never delays the console. ifupdown-ng starts busybox `udhcpc`, which
-applies the lease through its default script (address, route and
+applies each lease through its default script (address, route and
 `/etc/resolv.conf`) and keeps retrying in the background. The inittab also applies
 `/etc/hostname` before OpenRC, so the system hostname is `bmx` and udhcpc sends it
 as the client name. Run:
 
 ```sh
-ip addr show eth0        # the leased address
-ip route                 # the default route from DHCP
+ip addr show eth0        # the leased address on the first NIC
+ip addr show eth1        # the second NIC gets its own lease
+ip route                 # the default routes from DHCP
 ping -c1 1.1.1.1         # link and route
 wget -qO- http://example.com/
 ```
 
-`bmx-net` prints `bmx: network up <addr>` on COM1 when the lease arrives, or
-`bmx: network down` after ten seconds without one; neither case blocks boot. The
-rootfs carries `linux-firmware-rtl_nic`: r8169 requests `rtl8168h-2.fw` when
-`eth0` opens, and the kernel loads the package's `.fw.zst` file through
+`bmx-net` prints `bmx: network up <iface> <addr>` on COM1 for each lease as it
+arrives, `bmx: network down <iface>` after twenty seconds without one, and
+`bmx: network online` once both interfaces are up; none of it blocks boot. The
+rootfs carries `linux-firmware-rtl_nic`: r8169 requests `rtl8168h-2.fw` when each
+interface opens, and the kernel loads the package's `.fw.zst` file through
 `FW_LOADER_COMPRESS_ZSTD`. r8169 tolerates the file being absent, but the 8168H
 PHY patch is what the board's RTL8111H asks for.
 

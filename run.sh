@@ -40,6 +40,7 @@ if [ "${1:-}" = "--uefi" ]; then
     -drive if=pflash,format=raw,file=build/OVMF_VARS.fd \
     "${DISK[@]}" \
     -nic user,model=e1000 \
+    -netdev user,id=n1,net=10.0.3.0/24 -device e1000,netdev=n1 \
     -display none \
     -serial stdio \
     -no-reboot \
@@ -52,6 +53,7 @@ exec qemu-system-x86_64 \
   -m 512 \
   -boot c \
   -nic user,model=e1000 \
+  -netdev user,id=n1,net=10.0.3.0/24 -device e1000,netdev=n1 \
   -display none \
   -serial stdio \
   -no-reboot \

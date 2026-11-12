@@ -26,9 +26,11 @@ q35 and UEFI paths.
   `usbhid`/`evdev`/`mousedev`, and `gpm` on the text console.
 - S8: both console shells start in `/root`, with `HOME=/root`, instead of the
   filesystem root.
-- S9: `eth0` is configured by DHCP from `/etc/network/interfaces`, applied by
-  ifupdown-ng and busybox `udhcpc`; the network start never blocks the console,
-  and the gate asserts that the interface exists.
+- S9: `eth0` and `eth1` are configured by DHCP from `/etc/network/interfaces`,
+  applied by ifupdown-ng and busybox `udhcpc`; the network start never blocks the
+  console, and the gate asserts that both interfaces exist.
+- S10: both DHCP leases are reported per interface, and `bmx: network online`
+  appears only when both are up; the BIOS gate waits for it.
 
 ## Tasks
 
@@ -38,7 +40,8 @@ q35 and UEFI paths.
 - T4 update the gate assertions and timing - inline - done (1c92cd9)
 - T5 update README and roadmap - inline - done (1c92cd9)
 - T6 local console and instant boot - inline - done (8dd6bc8)
-- T7 console home and network - inline - done (this commit)
+- T7 console home and network - inline - done (00c8ea3)
+- T8 second NIC and firmware - inline - done (this commit)
 
 ## Log
 
@@ -135,6 +138,17 @@ the root is mounted when `ifup` opens the interface. The rootfs now carries
 `linux-firmware-rtl_nic`, the fragment enables `FW_LOADER_COMPRESS_ZSTD` because
 Alpine ships the file as `.fw.zst`, and `bmx-check` proves
 `rtl8168h-2.fw.zst` is in the image.
+
+L12: "Perfecto. Me gustaría que eth1 también estuviera implementado y funcionando
+por defecto, como eth0"
+
+The board has two RTL8111H NICs, so `/etc/network/interfaces` now configures
+`eth1` with DHCP exactly like `eth0`. `bmx-net` reports each lease as
+`bmx: network up <iface> <addr>`, prints `bmx: network online` only when both are
+up, and names the interface in the down line after twenty seconds. Every QEMU
+path attaches a second `e1000` on 10.0.3.0/24 (the first stays on QEMU's default
+10.0.2.0/24), so the BIOS gate waits for both leases and the summary, and every
+path asserts `bmx: network eth0 ready` and `bmx: network eth1 ready`.
 
 The first manual run exposed a pre-existing gap: nothing applied `/etc/hostname`,
 so the system was `(none)`, the prompt read `(none):/#` (busybox init leaves HOME

@@ -453,8 +453,8 @@ ttyS0::respawn:/usr/local/bin/bmx-shell
 ::shutdown:/sbin/openrc shutdown
 EOF
 
-# The board's NIC is the RTL8111H behind r8169 and the QEMU gate emulates an
-# e1000, so both drivers are already built in. DHCP applies the lease through
+# The board's two NICs are the RTL8111H behind r8169 and the QEMU gate emulates
+# e1000s, so both drivers are already built in. DHCP applies the leases through
 # udhcpc's default script (address, route, /etc/resolv.conf); ifup only starts
 # it, so the interfaces file is the single place the policy lives.
 cat > "$ALPINE_ROOT/etc/network/interfaces" <<'EOF'
@@ -463,6 +463,9 @@ iface lo inet loopback
 
 auto eth0
 iface eth0 inet dhcp
+
+auto eth1
+iface eth1 inet dhcp
 EOF
 
 cat > "$ALPINE_ROOT/etc/fstab" <<'EOF'
@@ -510,11 +513,13 @@ if [ -c /dev/input/mice ] && [ -x /usr/sbin/gpm ]; then
 else
     echo "bmx: console mouse missing"
 fi
-if [ -d /sys/class/net/eth0 ]; then
-    echo "bmx: network ready"
-else
-    echo "bmx: network missing"
-fi
+for iface in eth0 eth1; do
+    if [ -d "/sys/class/net/$iface" ]; then
+        echo "bmx: network $iface ready"
+    else
+        echo "bmx: network $iface missing"
+    fi
+done
 if [ -f /lib/firmware/rtl_nic/rtl8168h-2.fw ] ||
    [ -f /lib/firmware/rtl_nic/rtl8168h-2.fw.zst ]; then
     echo "bmx: network firmware ready"
@@ -564,22 +569,31 @@ EOF
 cat > "$ALPINE_ROOT/usr/local/bin/bmx-net" <<'EOF'
 #!/bin/sh
 # The network is best-effort: the console never waits for a cable or a DHCP
-# server. ifup configures lo and starts udhcpc, which backgrounds itself; this
-# subshell keeps even the first discovery off the boot path and reports the
-# lease to the console (COM1) when it arrives.
+# server. ifup configures lo and both NICs, and udhcpc backgrounds itself; this
+# subshell keeps even the first discovery off the boot path. Every lease is
+# reported once on the console (COM1), and the online line appears only when
+# both interfaces have one.
+( ifup -a ) &
 (
-    ifup -a
     i=0
-    while [ "$i" -lt 10 ]; do
-        addr=$(ip addr show dev eth0 2>/dev/null | awk '/inet /{print $2; exit}')
-        if [ -n "$addr" ]; then
-            echo "bmx: network up $addr"
+    while [ "$i" -lt 20 ]; do
+        for iface in eth0 eth1; do
+            [ -f "/run/bmx-net.$iface" ] && continue
+            addr=$(ip addr show dev "$iface" 2>/dev/null | awk '/inet /{print $2; exit}')
+            if [ -n "$addr" ]; then
+                echo "bmx: network up $iface $addr"
+                : > "/run/bmx-net.$iface"
+            fi
+        done
+        if [ -f /run/bmx-net.eth0 ] && [ -f /run/bmx-net.eth1 ]; then
+            echo "bmx: network online"
             exit 0
         fi
         sleep 1
         i=$((i + 1))
     done
-    echo "bmx: network down"
+    [ -f /run/bmx-net.eth0 ] || echo "bmx: network down eth0"
+    [ -f /run/bmx-net.eth1 ] || echo "bmx: network down eth1"
 ) &
 exit 0
 EOF

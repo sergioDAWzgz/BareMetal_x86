@@ -9,9 +9,10 @@ Before Linux is up, COM1 is the only channel that reports a failure. Once Alpine
 starts, the board's own monitor shows the console too, so a screen with the tty1
 root shell means the image and the root filesystem are healthy; a black screen
 with COM1 still printing points at i915 or the panel. A booted board also reports
-its DHCP lease on COM1 as `bmx: network up <addr>`; `ip addr show eth0` confirms
-it, while a missing cable only prints `bmx: network down` and never blocks the
-boot.
+each DHCP lease on COM1 as `bmx: network up <iface> <addr>`, then
+`bmx: network online` when both interfaces have one; `ip addr show eth0` and
+`ip addr show eth1` confirm them. A missing cable only prints
+`bmx: network down <iface>` and never blocks the boot.
 
 ## Keep a known-good image
 
