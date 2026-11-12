@@ -117,17 +117,24 @@ raíz del sistema de archivos. Además, quiero que este sistema operativo cuente
 con soporte de red en la placa."
 
 `bmx-shell` sets `HOME=/root`, enters it and execs the login shell, and both tty1
-and ttyS0 respawn through it. Networking needed no new kernel option: `R8169` and
-`E1000` were already `=y` from defconfig, so the fragment pins them. The rootfs
+and ttyS0 respawn through it. The NIC drivers needed no new option: `R8169` and
+`E1000` were already `=y` from defconfig, so the fragment pins them; the only new
+kernel options are the zstd firmware-loader ones. The rootfs
 configures `lo` and `eth0` with DHCP in `/etc/network/interfaces`; `bmx-net` runs
 `ifup -a` in a background subshell and prints `bmx: network up <addr>` (or
 `network down` after ten seconds) on COM1, so a missing cable cannot hold the
 console. The gate attaches `-nic user,model=e1000` on every path and asserts
-`bmx: network ready` plus `bmx: bmx-shell ready` and `bmx: bmx-net ready`. The BIOS
-path waits for `bmx:~#` and `bmx: network up` before stopping, so the console home
-and the DHCP lease are gate assertions, not only manual checks. The
-optional `rtl_nic` firmware is not packaged: a built-in driver probes before the
-root is mounted, so it cannot load there, and r8169 tolerates its absence.
+`bmx: network ready` plus `bmx: bmx-shell ready`, `bmx: bmx-net ready` and
+`bmx: network firmware ready`. The BIOS path waits for `bmx:~#` and
+`bmx: network up` before stopping, so the console home and the DHCP lease are
+gate assertions, not only manual checks.
+
+The optional `rtl_nic` firmware turned out to matter: r8169 calls
+`rtl_request_firmware` from `rtl_open`, not from probe, so the file can load after
+the root is mounted when `ifup` opens the interface. The rootfs now carries
+`linux-firmware-rtl_nic`, the fragment enables `FW_LOADER_COMPRESS_ZSTD` because
+Alpine ships the file as `.fw.zst`, and `bmx-check` proves
+`rtl8168h-2.fw.zst` is in the image.
 
 The first manual run exposed a pre-existing gap: nothing applied `/etc/hostname`,
 so the system was `(none)`, the prompt read `(none):/#` (busybox init leaves HOME

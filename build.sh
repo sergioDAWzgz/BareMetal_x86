@@ -371,7 +371,7 @@ ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/$ALPINE_BRANCH"
 ALPINE_MINIROOTFS_SHA256=cdaa38cb8de3537967ee5b6c9b6cd00cc962da2b018e6eea48696bb274923012
 ALPINE_APK_TOOLS=apk-tools-static-3.0.9-r0.apk
 ALPINE_APK_TOOLS_SHA256=0a1a0682375f66a83b7b903f6e4638ccfe312547d50d336b5f2be9fc391281be
-ALPINE_PACKAGES="alpine-base ffmpeg gpm libva libva-intel-driver libva-utils mesa-dri-gallium mpv"
+ALPINE_PACKAGES="alpine-base ffmpeg gpm libva libva-intel-driver libva-utils linux-firmware-rtl_nic mesa-dri-gallium mpv"
 ALPINE_CLIP_URL="https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_1MB.mp4"
 ALPINE_CLIP_SHA256=38d763af0161e28145e6300d9a5b3b1e4a387ed8f6c4ba7ac1a5f2948d8fac51
 ALPINE_CACHE="$LINUX_CACHE/alpine-$ALPINE_VERSION"
@@ -514,6 +514,12 @@ if [ -d /sys/class/net/eth0 ]; then
     echo "bmx: network ready"
 else
     echo "bmx: network missing"
+fi
+if [ -f /lib/firmware/rtl_nic/rtl8168h-2.fw ] ||
+   [ -f /lib/firmware/rtl_nic/rtl8168h-2.fw.zst ]; then
+    echo "bmx: network firmware ready"
+else
+    echo "bmx: network firmware missing"
 fi
 if ! command -v mpv >/dev/null 2>&1; then
     echo "bmx: mpv missing"

@@ -82,7 +82,9 @@ CONFIG_HID_GENERIC=y
 # Networking. The board's NIC is the RTL8111H on PCI, driven by r8169; the QEMU
 # gate emulates an e1000 and asserts that the interface exists, so both drivers
 # are pinned instead of depending on defconfig. NET/INET come from defconfig.
-# The optional rtl_nic patch firmware is not needed for link and could not load
-# anyway: the driver is built in and probes before the root is mounted.
+# r8169 asks for rtl8168h-2.fw from rtl_open, when the interface comes up, so the
+# patch file can load after the root is mounted; Alpine ships it zstd-compressed.
 CONFIG_R8169=y
 CONFIG_E1000=y
+CONFIG_FW_LOADER_COMPRESS=y
+CONFIG_FW_LOADER_COMPRESS_ZSTD=y

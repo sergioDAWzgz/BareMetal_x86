@@ -143,6 +143,7 @@ common_assertions() {
   grep -q 'bmx: local console ready'            "$log" || fail "$label: the Linux VT is missing"
   grep -q 'bmx: console mouse ready'            "$log" || fail "$label: the input stack did not create /dev/input/mice"
   grep -q 'bmx: network ready'                  "$log" || fail "$label: the network interface was not created"
+  grep -q 'bmx: network firmware ready'         "$log" || fail "$label: the r8169 firmware is missing from the rootfs"
   grep -q 'bmx: bmx-shell ready'                "$log" || fail "$label: bmx-shell is missing or does not parse"
   grep -q 'bmx: bmx-net ready'                  "$log" || fail "$label: bmx-net is missing or does not parse"
   grep -q 'kbd: controller ready'               "$log" || fail "$label: 8042 controller was not initialised"

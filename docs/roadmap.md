@@ -192,7 +192,9 @@ open until the board itself says which one it uses.
       gate NIC) are pinned in the payload, `/etc/network/interfaces` asks for
       DHCP on `eth0`, and `bmx-net` runs `ifup -a` in a background subshell so
       the console never waits for a cable; every gate path attaches an `e1000`
-      and asserts that `eth0` exists
+      and asserts that `eth0` exists. The rootfs carries
+      `linux-firmware-rtl_nic` and the kernel loads its zstd file
+      (`FW_LOADER_COMPRESS_ZSTD`) when r8169 opens the interface
 - [ ] re-check the 1080p60 display path: `bmx-play` now uses `--profile=fast` and
       refuses the software fallback; the first run dropped 177 of 600 frames, so
       the display/render path is the limit, not the decode

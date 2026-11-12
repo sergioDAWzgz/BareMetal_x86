@@ -208,9 +208,9 @@ kernel and a reader can audit it without diffing a 5000-line `.config` against a
 version they do not have. The fragment gives the payload an 8250 console, a
 framebuffer console (`DRM_FBDEV_EMULATION`), devtmpfs/tmpfs/procfs/sysfs, ELF and
 script `binfmt`, the AHCI and PIIX storage drivers, `i915`, the input stack
-(`evdev`, `mousedev`, `atkbd`, `usbhid`) the local console needs, and both network
-drivers (`r8169` for the board's RTL8111H, `e1000` for the QEMU gate); ext4 comes
-from `defconfig`. It also turns off modules (one self-contained image) and KASLR (the
+(`evdev`, `mousedev`, `atkbd`, `usbhid`) the local console needs, both network
+drivers (`r8169` for the board's RTL8111H, `e1000` for the QEMU gate), and zstd
+firmware loading for the `rtl_nic` package; ext4 comes from `defconfig`. It also turns off modules (one self-contained image) and KASLR (the
 loader reports where it put the kernel and the gate asserts that address).
 Everything the root needs to mount is built in.
 
@@ -221,9 +221,10 @@ root (`--usermode --no-chown`) with `alpine-base`, `libva`,
 writes the tree into a 512 MiB ext4 image. Both consoles are automatic root
 shells: tty1 on the monitor and ttyS0 on COM1, which preserves the debug channel,
 both launched by `bmx-shell` in `/root`. `gpm` gives the text console its mouse,
-`/etc/network/interfaces` asks for DHCP on `eth0`, and `/etc/profile.d/bmx-va.sh`
-selects the i965 driver, so `vainfo` can be run as soon as the board reaches the
-prompt.
+`/etc/network/interfaces` asks for DHCP on `eth0`, the rootfs carries
+`linux-firmware-rtl_nic` for the board's PHY patch, and
+`/etc/profile.d/bmx-va.sh` selects the i965 driver, so `vainfo` can be run as soon
+as the board reaches the prompt.
 The inittab mounts sysfs before OpenRC: libva's DRM display asks the kernel for the
 node type through `/sys`, and without it `vainfo` reports that no display could be
 initialized. Because the build runs unprivileged, the files in the image belong to
@@ -343,9 +344,10 @@ wget -qO- http://example.com/
 
 `bmx-net` prints `bmx: network up <addr>` on COM1 when the lease arrives, or
 `bmx: network down` after ten seconds without one; neither case blocks boot. The
-optional `rtl_nic` patch firmware is not used: the driver is built in and probes
-before the root filesystem is mounted, so the file could not be loaded, and basic
-link does not need it.
+rootfs carries `linux-firmware-rtl_nic`: r8169 requests `rtl8168h-2.fw` when
+`eth0` opens, and the kernel loads the package's `.fw.zst` file through
+`FW_LOADER_COMPRESS_ZSTD`. r8169 tolerates the file being absent, but the 8168H
+PHY patch is what the board's RTL8111H asks for.
 
 ## Writing the image to a disk
 
