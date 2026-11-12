@@ -241,7 +241,30 @@ starts on the BIOS, q35 and UEFI paths. The gate asserts that the handoff names
 `tty0`, that the running kernel created `/dev/tty0`, `/dev/input/mice` and
 `eth0`, and that `bmx-shell`/`bmx-net` parse; the BIOS path additionally waits for
 the `bmx:~#` prompt and both DHCP leases, so `/root` and the network are asserted,
-not only sampled by hand. `vainfo` reports the i965 driver and
+not only sampled by hand.
+
+## Phase 7 - installer
+
+- [x] a UEFI El Torito installer ISO: a second out-of-tree kernel build with
+      built-in cmdline and an embedded Alpine initramfs; the bzImage is the
+      `BOOTX64.EFI` and the ISO carries the OS payload
+- [x] an installer TUI on the local console: keyboard layout (default `es`),
+      destination disk, default whole-disk layout, manual `cfdisk` partitioning
+- [x] a one-button default path behind a 20 second countdown; the ext4 root
+      takes all the space left after the 64 MiB ESP
+- [x] manual MBR layouts: up to four primaries, one FAT32 ESP and one ext4 root,
+      the first partition after sector 144; the installer generates the disk
+      signature and patches `root=PARTUUID=<disk>-<part>` in the kernel
+- [x] the chosen keymap is written to `/etc/keymap` and loaded by `bmx-keymap` at
+      boot; the stock image keeps the US default
+- [x] `installer/test-iso.sh` installs into a blank 2 GiB QEMU disk and boots the
+      result to OpenRC through OVMF
+- [ ] exercise the manual `cfdisk` path end to end in QEMU and on the board
+- [ ] a BIOS boot path for the installer ISO (the installed OS already has both)
+
+The installer was validated with the default path: a 2 GiB disk received a 64 MiB
+ESP at LBA 2048 and an ext4 root from LBA 133120 to the end of the disk, and the
+installed image booted through OVMF to OpenRC with the patched PARTUUID. `vainfo` reports the i965 driver and
 the H.264 decode entrypoints, and the zero-copy `bmx-decode` proved the Gen7 block
 does the 1080p decode: 2.24 CPU-seconds against 44.32 in software, with mpv
 playing 1080p60 through KMS/DRM. The remaining phase 6 work is the 60 fps display

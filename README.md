@@ -14,7 +14,8 @@ and prints through a syscall. Both boot paths run the same kernel. The boot chai
 hands the machine to a Linux kernel built from pinned source, which mounts an
 Alpine ext4 root and runs OpenRC. After that handoff the console is the board's
 own monitor (i915 and fbcon on tty0) with a USB keyboard and mouse; COM1 remains
-the debug channel. See `docs/roadmap.md`.
+the debug channel. Phase 7 adds a UEFI installer ISO with keyboard selection and
+default or manual MBR partitioning. See `docs/roadmap.md`.
 
 ## Requirements
 
@@ -361,6 +362,39 @@ being printed over the console; `dmesg | tail` still shows it. The rootfs carrie
 opens, and the kernel loads the package's `.fw.zst` file through
 `FW_LOADER_COMPRESS_ZSTD`. r8169 tolerates the file being absent, but the 8168H
 PHY patch is what the board's RTL8111H asks for.
+
+## Installer ISO
+
+`installer/build-iso.sh` builds `build/installer/bmx-installer.iso` (about 214 MiB),
+a UEFI El Torito image that carries an installer kernel, an installer initramfs
+and the OS payload. Build the disk image first and have `xorriso` on the host:
+
+```sh
+./build.sh
+sudo apt-get install xorriso
+./installer/build-iso.sh
+```
+
+Write the ISO to a USB stick or attach it as a CD. The board boots it through
+UEFI; the installer itself has no BIOS path (the installed system still boots
+both paths).
+
+The first screen starts a 20 second countdown. If no key is pressed, the default
+install runs: first internal disk, Spanish console keymap, one MBR with a 64 MiB
+FAT32 ESP and an ext4 root that fills the rest of the disk, and the same boot
+chain as the prebuilt image. Any key opens the menu, where the keyboard, the
+target disk and `cfdisk` manual partitioning can be chosen. Manual mode requires
+one FAT32 partition (type `c`) and one ext4 root (type `83`), with the first
+partition starting after sector 144; the installer generates the disk signature
+and patches `root=PARTUUID=<disk>-<part>` into the kernel before writing it.
+
+The chosen keymap is stored as `/etc/keymap` in the installed rootfs and loaded
+by `bmx-keymap` at boot; the default is `es`. `installer/test-iso.sh` installs
+into a blank 2 GiB QEMU disk and boots the result through OVMF; it needs `qemu`
+and `ovmf`.
+
+The installer is destructive: it rewrites the target disk's MBR and both
+filesystems.
 
 ## Writing the image to a disk
 
