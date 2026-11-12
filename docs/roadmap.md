@@ -196,6 +196,9 @@ open until the board itself says which one it uses.
       interfaces exist. The rootfs carries `linux-firmware-rtl_nic` and the kernel
       loads its zstd file (`FW_LOADER_COMPRESS_ZSTD`) when r8169 opens an
       interface
+- [x] quiet the console after boot: the inittab runs `dmesg -n 5`, so kernel
+      info such as NIC link up/down events stays in the ring buffer instead of
+      printing over tty0/ttyS0
 - [ ] re-check the 1080p60 display path: `bmx-play` now uses `--profile=fast` and
       refuses the software fallback; the first run dropped 177 of 600 frames, so
       the display/render path is the limit, not the decode

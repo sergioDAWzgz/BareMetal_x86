@@ -206,6 +206,12 @@ grep -q 'bmx: network online' "$LOG" \
 if grep -q 'bmx: network down eth' "$LOG"; then
   fail 'bios: an interface reported no DHCP lease'
 fi
+# After ::once:/bin/dmesg -n 5, KERN_INFO link-change lines must stay off the
+# console while the userspace markers above still appear.
+if awk '/bmx:(~|\/root)#/{seen=1} seen' "$LOG" |
+   grep -Eq 'NIC Link is (Up|Down)|Link is (Up|Down)'; then
+  fail 'bios: NIC link info reached the console after dmesg -n 5'
+fi
 
 echo 'PASS: bios path reaches long mode with a framebuffer, PCI and a PS/2 keyboard controller'
 

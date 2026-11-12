@@ -350,9 +350,12 @@ wget -qO- http://example.com/
 
 `bmx-net` prints `bmx: network up <iface> <addr>` on COM1 for each lease as it
 arrives, `bmx: network down <iface>` after twenty seconds without one, and
-`bmx: network online` once both interfaces are up; none of it blocks boot. The
-rootfs carries `linux-firmware-rtl_nic`: r8169 requests `rtl8168h-2.fw` when each
-interface opens, and the kernel loads the package's `.fw.zst` file through
+`bmx: network online` once both interfaces are up; none of it blocks boot. After
+OpenRC the inittab drops the console loglevel to warnings (`dmesg -n 5`), so
+runtime kernel info such as NIC link up/down chatter goes to `dmesg` instead of
+being printed over the console; `dmesg | tail` still shows it. The rootfs carries
+`linux-firmware-rtl_nic`: r8169 requests `rtl8168h-2.fw` when each interface
+opens, and the kernel loads the package's `.fw.zst` file through
 `FW_LOADER_COMPRESS_ZSTD`. r8169 tolerates the file being absent, but the 8168H
 PHY patch is what the board's RTL8111H asks for.
 

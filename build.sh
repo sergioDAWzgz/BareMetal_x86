@@ -433,11 +433,13 @@ fi
 # COM1, which drops straight to a shell without a login prompt. bmx-shell puts
 # both in root's home, and bmx-net brings the network up without ever blocking
 # the console. The hostname line makes /etc/hostname real; ifupdown-ng also uses
-# the system hostname as the DHCP client name. The local console is the normal
-# one; COM1 stays because it is the only channel that reports a failure before
-# Linux is up. sysfs is mounted here because the empty OpenRC runlevels leave it
-# to the services, and libva's DRM display cannot classify the render node
-# without /sys.
+# the system hostname as the DHCP client name. Once OpenRC is up the console
+# loglevel drops to warnings, so runtime kernel info (NIC link up/down, driver
+# chatter) stays in dmesg instead of printing over the console. The local
+# console is the normal one; COM1 stays because it is the only channel that
+# reports a failure before Linux is up. sysfs is mounted here because the empty
+# OpenRC runlevels leave it to the services, and libva's DRM display cannot
+# classify the render node without /sys.
 cat > "$ALPINE_ROOT/etc/inittab" <<'EOF'
 ::sysinit:/bin/mount -t sysfs sysfs /sys
 ::sysinit:/bin/hostname -F /etc/hostname
@@ -445,6 +447,7 @@ cat > "$ALPINE_ROOT/etc/inittab" <<'EOF'
 ::sysinit:/sbin/openrc sysinit
 ::sysinit:/sbin/openrc boot
 ::wait:/sbin/openrc default
+::once:/bin/dmesg -n 5
 ::once:/usr/local/bin/bmx-net
 ::once:/usr/local/bin/bmx-mouse
 tty1::respawn:/usr/local/bin/bmx-shell

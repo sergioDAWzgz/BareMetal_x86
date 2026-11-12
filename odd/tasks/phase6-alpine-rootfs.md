@@ -150,6 +150,24 @@ path attaches a second `e1000` on 10.0.3.0/24 (the first stays on QEMU's default
 10.0.2.0/24), so the BIOS gate waits for both leases and the summary, and every
 path asserts `bmx: network eth0 ready` and `bmx: network eth1 ready`.
 
+L13: "Perfecto. Un pequeño cambio, y otro grande: el pequeño es que no indique en
+pantalla siempre que una interfaz de red se desconecte o se conecte. El grande es
+que me gustaría crear un instalador para este SO, con su imagen ISO y capacidad
+de elegir distribución de teclado y disco duro de destino (con opciones de
+particionado por defecto y capacidad de configurarlo manualmente según quiera el
+usuario), y un botón inicial de por defecto para que la instalación sea de un
+botón si así lo quiere el usuario, con un contador de 20 segundos como un trigger
+que haga lo mismo que el botón de por defecto si no se pulsa ninguna tecla"
+
+The small change is in: the inittab now runs `dmesg -n 5` after OpenRC default and
+before the network helpers, so console_loglevel is 5. Warnings and errors still
+print; KERN_INFO, which carries the NIC link up/down chatter, stays in the kernel
+ring buffer (`dmesg`). The q35 and UEFI paths stop at the OpenRC banner and the
+BIOS path runs past it to the userspace prompt/online markers; none of the gate
+assertions depend on KERN_INFO after the switch, and the BIOS path now also
+asserts that no link line appears after the prompt. The installer is a separate
+feature document.
+
 The first manual run exposed a pre-existing gap: nothing applied `/etc/hostname`,
 so the system was `(none)`, the prompt read `(none):/#` (busybox init leaves HOME
 unset), and ifupdown-ng used `(none)` as the DHCP hostname, which made its
