@@ -94,12 +94,39 @@ default_install() {
 
 countdown_aborted() {
     pressed=0
+    rows=$(stty size < /dev/tty0 2>/dev/null | cut -d' ' -f1)
+    cols=$(stty size < /dev/tty0 2>/dev/null | cut -d' ' -f2)
+    case "$rows" in '' | *[!0-9]*) rows=25 ;; esac
+    case "$cols" in '' | *[!0-9]*) cols=80 ;; esac
+    width=68
+    [ "$width" -gt $((cols - 4)) ] && width=$((cols - 4))
+    height=10
+    top=$(((rows - height) / 2 + 1))
+    left=$(((cols - width) / 2 + 1))
+    [ "$top" -lt 1 ] && top=1
+    [ "$left" -lt 1 ] && left=1
+    inner=$((width - 2))
+    fmt="%-${inner}s"
+    border=$(printf '%*s' "$inner" '' | tr ' ' '-')
+    row() {
+        printf '\033[%d;%dH|%s|' "$1" "$left" "$(printf "$fmt" "$2")" > /dev/tty0
+    }
+    printf '\033[2J\033[H' > /dev/tty0
+    printf '\033[%d;%dH+%s+' "$top" "$left" "$border" > /dev/tty0
+    row $((top + 1)) " BareMetal_x86"
+    row $((top + 2)) ""
+    row $((top + 3)) "   Instalación por defecto en 10 segundos."
+    row $((top + 4)) ""
+    row $((top + 5)) "   Se usará el primer disco interno, teclado español"
+    row $((top + 6)) "   y todo el disco."
+    row $((top + 7)) ""
+    row $((top + 8)) "   Pulsa cualquier tecla para configurar manualmente."
+    printf '\033[%d;%dH+%s+' $((top + 9)) "$left" "$border" > /dev/tty0
     stty -icanon min 1 time 0 < /dev/tty0 2>/dev/null || true
     i=10
     while [ "$i" -gt 0 ]; do
-        dialog --title "BareMetal_x86" --infobox \
-            "Instalación por defecto en $i segundos.\n\nSe usará el primer disco interno, teclado español y todo el disco.\nPulsa cualquier tecla para configurar manualmente." \
-            11 70
+        printf '\033[%d;%dH|%s|' $((top + 3)) "$left" \
+            "$(printf "$fmt" "   Instalación por defecto en $i segundos.")" > /dev/tty0
         if timeout 1 dd bs=1 count=1 < /dev/tty0 >/dev/null 2>&1; then
             pressed=1
             break

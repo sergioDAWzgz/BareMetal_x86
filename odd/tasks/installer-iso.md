@@ -133,3 +133,11 @@ The countdown is now 10 seconds and is drawn as a `dialog --infobox` box, one
 second per iteration, while a non-canonical `dd` on tty0 cancels it on any key.
 The TUI copy uses Spain Spanish and the success box reads "Instalación
 completada. Retira el medio de instalación y reinicia."
+
+L11: "Además, si puedes, haz que el contador TUI no haga parpadear toda la
+pantalla cada vez que cambie el número."
+
+The countdown no longer uses `dialog` (which repaints the whole box every
+second). It draws one bordered box with absolute cursor positioning and rewrites
+only the countdown line in place; the box is centred from `stty size` and fits
+the 80-column installer console.

@@ -195,3 +195,17 @@ The target rootfs now installs bash and `bmx-shell` runs `/bin/bash -l`.
 `grep` colour. `bmx-banner` runs after `bmx-clear` and prints `BareMetal_x86`
 and the running `uname -r` on tty1 (coloured) and COM1 (plain). The gate asserts
 the `bmx: bmx-banner ready` marker and the `Kernel: 6.12.` banner line.
+
+L16: "Introduce las mejoras que has dicho. Además, si puedes, haz que el contador
+TUI no haga parpadear toda la pantalla cada vez que cambie el número. Me
+gustaría, también, tocar el espacio que hay entre el nombre de la distribución,
+la versión del kernel de Linux y el prompt para que sea parecido al de Debian.
+Modifica la fuente y el tamaño de esta para que sea como la de Debian también."
+
+The target rootfs adds GNU grep, because the BusyBox applet accepted and ignored
+`--color`, and the Terminus console fonts. `bmx-console-font` sets `ter-132n`
+(16x32) on tty1 before `bmx-clear`, so the monitor uses the Debian console font
+family at a larger size. The banner now leaves a blank line before the prompt.
+The q35 and UEFI gate paths wait for the banner instead of the OpenRC line, so
+`Kernel: 6.12.` is asserted on all three paths. The installer countdown is a
+hand-drawn box that rewrites only its number line (installer log L11).

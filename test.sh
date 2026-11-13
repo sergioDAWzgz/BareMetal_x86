@@ -149,6 +149,8 @@ common_assertions() {
   grep -q 'bmx: bmx-keymap ready'               "$log" || fail "$label: bmx-keymap is missing or does not parse"
   grep -q 'bmx: bmx-clear ready'                "$log" || fail "$label: bmx-clear is missing or does not parse"
   grep -q 'bmx: bmx-banner ready'               "$log" || fail "$label: bmx-banner is missing or does not parse"
+  grep -q 'bmx: bmx-console-font ready'         "$log" || fail "$label: bmx-console-font is missing or does not parse"
+  grep -q '^Kernel: 6\.12\.'                    "$log" || fail "$label: the boot banner is missing"
   grep -q 'bmx: bmx-net ready'                  "$log" || fail "$label: bmx-net is missing or does not parse"
   grep -q 'kbd: controller ready'               "$log" || fail "$label: 8042 controller was not initialised"
   grep -q 'Phase 3 complete'                    "$log" || fail "$label: phase 3 did not complete"
@@ -200,8 +202,6 @@ grep -Eq 'acpi: rsdp at .* via (ebda|bios rom)' "$LOG" || fail 'bios: the RSDP w
 common_assertions "$LOG" bios
 grep -Eq 'bmx:(~|/root)#' "$LOG" \
   || fail 'bios: the console shell did not start in /root'
-grep -q '^Kernel: 6\.12\.' "$LOG" \
-  || fail 'bios: the boot banner is missing'
 grep -q 'bmx: network up eth0 [0-9]' "$LOG" \
   || fail 'bios: DHCP did not configure eth0'
 grep -q 'bmx: network up eth1 [0-9]' "$LOG" \
@@ -223,7 +223,7 @@ echo 'PASS: bios path reaches long mode with a framebuffer, PCI and a PS/2 keybo
 # --- Q35 path: the MCFG table only exists on a platform that publishes one ---
 LOG=build/serial-q35.log
 rm -f "$LOG"
-run_until "$LOG" "$BOOT_SECONDS" 'OpenRC [0-9]' '' \
+run_until "$LOG" "$BOOT_SECONDS" 'Kernel: 6\.12\.' '' \
   -machine q35 -cpu qemu64 -m 512 \
   "${DISK_Q35[@]}" \
   -boot c -nic user,model=e1000 \
@@ -258,7 +258,7 @@ fi
 cp "$OVMF_VARS" build/OVMF_VARS.fd
 LOG=build/serial-uefi.log
 rm -f "$LOG"
-run_until "$LOG" "$UEFI_SECONDS" 'OpenRC [0-9]' '' \
+run_until "$LOG" "$UEFI_SECONDS" 'Kernel: 6\.12\.' '' \
   -machine pc -cpu qemu64 -m 512 \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file=build/OVMF_VARS.fd \
