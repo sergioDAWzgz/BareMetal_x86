@@ -145,6 +145,7 @@ common_assertions() {
   grep -q 'bmx: network eth0 ready'             "$log" || fail "$label: eth0 was not created"
   grep -q 'bmx: network eth1 ready'             "$log" || fail "$label: eth1 was not created"
   grep -q 'bmx: network firmware ready'         "$log" || fail "$label: the r8169 firmware is missing from the rootfs"
+  grep -q 'bmx: tls certificates ready'         "$log" || fail "$label: the TLS certificate bundle is missing from the rootfs"
   grep -q 'bmx: bmx-shell ready'                "$log" || fail "$label: bmx-shell is missing or does not parse"
   grep -q 'bmx: bmx-keymap ready'               "$log" || fail "$label: bmx-keymap is missing or does not parse"
   grep -q 'bmx: bmx-clear ready'                "$log" || fail "$label: bmx-clear is missing or does not parse"
@@ -152,6 +153,9 @@ common_assertions() {
   grep -q 'bmx: bmx-console-font ready'         "$log" || fail "$label: bmx-console-font is missing or does not parse"
   grep -q '^Kernel: 6\.12\.'                    "$log" || fail "$label: the boot banner is missing"
   grep -q 'bmx: bmx-net ready'                  "$log" || fail "$label: bmx-net is missing or does not parse"
+  grep -q 'bmx: bmx-shutdown ready'             "$log" || fail "$label: bmx-shutdown is missing or does not parse"
+  grep -q 'bmx: reboot ready'                   "$log" || fail "$label: the reboot wrapper is missing or does not parse"
+  grep -q 'bmx: poweroff ready'                 "$log" || fail "$label: the poweroff wrapper is missing or does not parse"
   grep -q 'kbd: controller ready'               "$log" || fail "$label: 8042 controller was not initialised"
   grep -q 'Phase 3 complete'                    "$log" || fail "$label: phase 3 did not complete"
   grep -q 'mbr: partition table self-test passed' "$log" \

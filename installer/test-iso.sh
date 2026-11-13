@@ -4,6 +4,8 @@
 # the ISO with installer/build-iso.sh. BMX_TEST_MEDIA=usb boots the ISO as a USB
 # stick instead of a CD-ROM; BMX_TEST_MEDIA=fat reproduces a Rufus ISO-mode stick
 # (a FAT32 volume with the extracted payload and the BMXINSTALL label).
+# BMX_TEST_KEEP=1 keeps the target disk, so a second run installs over the
+# previous installation instead of starting from a blank disk.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -14,11 +16,16 @@ BOOT_LOG=build/installer/installed.log
 OVMF_CODE=${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}
 OVMF_VARS=${OVMF_VARS:-/usr/share/OVMF/OVMF_VARS_4M.fd}
 MEDIA=${BMX_TEST_MEDIA:-cd}
+KEEP=${BMX_TEST_KEEP:-0}
 
 [ -f "$ISO" ] || { echo "FAIL: $ISO is missing, run installer/build-iso.sh" >&2; exit 1; }
 mkdir -p "$(dirname "$TARGET")"
-rm -f "$TARGET"
-truncate -s 2G "$TARGET"
+if [ "$KEEP" = 1 ] && [ -f "$TARGET" ]; then
+  echo "keeping the existing target at $TARGET"
+else
+  rm -f "$TARGET"
+  truncate -s 2G "$TARGET"
+fi
 rm -f "$INSTALL_LOG" "$BOOT_LOG"
 cp "$OVMF_VARS" build/installer/OVMF_VARS.fd
 

@@ -205,8 +205,15 @@ open until the board itself says which one it uses.
       the running kernel from `uname -r` before the shell starts
 - [x] run the console shells with bash and Debian-like colours: a green
       `root@bmx:~#` prompt, `ls` and GNU `grep` colour, and the banner on tty1
-- [x] use a larger Terminus console font (16x32, `bmx-console-font`) and leave a
-      blank line between the boot banner and the prompt
+- [x] use Debian's console font and size (Terminus 8x16, `bmx-console-font`) and
+      leave a blank line between the boot banner and the prompt
+- [x] ship the Alpine `ca-certificates` bundle, so TLS clients work out of the box
+- [x] give the kernel a console without i915: `efifb` paints the firmware's GOP
+      framebuffer (the installer ISO), and `bochs-drm` gives QEMU's stdvga a
+      screen, so the console and the shutdown log are visible in the gate
+- [x] show the shutdown log on the monitor: `reboot` and `poweroff` raise the
+      kernel console log level and run OpenRC's shutdown on tty1, so the stopping
+      services and the kernel messages with their `[ seconds ]` stay on screen
 - [ ] re-check the 1080p60 display path: `bmx-play` now uses `--profile=fast` and
       refuses the software fallback; the first run dropped 177 of 600 frames, so
       the display/render path is the limit, not the decode
@@ -256,9 +263,11 @@ not only sampled by hand.
       `BOOTX64.EFI` and the ISO carries the OS payload
 - [x] an installer TUI on the local console: keyboard layout (default `es`),
       destination disk, default whole-disk layout, manual `cfdisk` partitioning
-- [x] a one-button default path behind a 10 second dialog-style countdown whose
-      number is redrawn in place; the ext4 root takes all the space left after
-      the 64 MiB ESP
+- [x] a one-button default path behind a 10 second countdown drawn in dialog's
+      own theme (blue screen, white panel, blue title) with only the number line
+      rewritten in place; the default asks nothing and overwrites a disk that
+      already holds an installation; the ext4 root takes all the space left
+      after the 64 MiB ESP
 - [x] manual MBR layouts: up to four primaries, one FAT32 ESP and one ext4 root,
       the first partition after sector 144; the installer generates the disk
       signature and patches `root=PARTUUID=<disk>-<part>` in the kernel

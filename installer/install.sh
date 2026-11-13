@@ -63,7 +63,13 @@ new_disk_id() {
 write_mbr_default() {
     disk=$1
     id=$2
-    sfdisk "$disk" >/dev/null <<EOF || die "no se pudo escribir la tabla en $disk"
+    # The default path is one button and no questions, including over a disk
+    # that already holds an installation. wipefs removes the old table and
+    # --wipe drops the signatures of the old partitions, so neither sfdisk nor
+    # mkfs can mistake them for something to preserve.
+    log "wipe $disk"
+    wipefs -a "$disk" >/dev/null 2>&1 || true
+    sfdisk --force --wipe always --wipe-partitions always "$disk" >/dev/null <<EOF || die "no se pudo escribir la tabla en $disk"
 label: dos
 label-id: 0x$id
 start=$ESP_START, size=$ESP_SECTORS, type=c
@@ -142,7 +148,7 @@ install_system() {
         die "no se pudo parchear el PARTUUID"
 
     log "format esp $ESP_PART"
-    mkfs.fat -F 32 -n BMXDATA "$ESP_PART" >/dev/null || die "mkfs.fat falló en $ESP_PART"
+    mkfs.fat -F 32 -I -n BMXDATA "$ESP_PART" >/dev/null || die "mkfs.fat falló en $ESP_PART"
     mkdir -p /mnt/esp
     mount "$ESP_PART" /mnt/esp || die "no se pudo montar $ESP_PART"
     cp -a "$PAYLOAD/esp/." /mnt/esp/ || die "no se pudo copiar el ESP"
@@ -150,7 +156,7 @@ install_system() {
     umount /mnt/esp || die "no se pudo desmontar el ESP"
 
     log "format root $ROOT_PART"
-    mkfs.ext4 -q -L BMXROOT "$ROOT_PART" || die "mkfs.ext4 falló en $ROOT_PART"
+    mkfs.ext4 -q -F -L BMXROOT "$ROOT_PART" || die "mkfs.ext4 falló en $ROOT_PART"
     mkdir -p /mnt/root
     mount "$ROOT_PART" /mnt/root || die "no se pudo montar $ROOT_PART"
     tar -xzf "$PAYLOAD/rootfs.tar.gz" -C /mnt/root || die "no se pudo extraer el rootfs"

@@ -31,6 +31,12 @@ q35 and UEFI paths.
   console, and the gate asserts that both interfaces exist.
 - S10: both DHCP leases are reported per interface, and `bmx: network online`
   appears only when both are up; the BIOS gate waits for it.
+- S11: the console uses Debian's font family and size, Terminus 8x16
+  (`ter-116n.psf.gz`), loaded by `bmx-console-font` on tty1.
+- S12: the rootfs carries the Alpine `ca-certificates` bundle at
+  `/etc/ssl/certs/ca-certificates.crt`.
+- S13: `reboot` and `poweroff` show OpenRC's shutdown and the kernel shutdown
+  messages, with their timestamps, on tty1.
 
 ## Tasks
 
@@ -42,6 +48,7 @@ q35 and UEFI paths.
 - T6 local console and instant boot - inline - done (8dd6bc8)
 - T7 console home and network - inline - done (00c8ea3)
 - T8 second NIC and firmware - inline - done (this commit)
+- T9 Debian-sized font, TLS bundle, visible shutdown - inline - done (this commit)
 
 ## Log
 
@@ -209,3 +216,25 @@ family at a larger size. The banner now leaves a blank line before the prompt.
 The q35 and UEFI gate paths wait for the banner instead of the OpenRC line, so
 `Kernel: 6.12.` is asserted on all three paths. The installer countdown is a
 hand-drawn box that rewrites only its number line (installer log L11).
+
+L17: "Tercero, las fuentes son muy grandes: las querría del tamaño de las de
+Debian. Cuarto, debe incluir certificados TLS de serie. Quinto, en el apagado y
+reinicio ha de mostrar toda la salida de apagado por la pantalla, con los
+segundos (igual que pasa con el arranque)"
+
+`bmx-console-font` now loads `ter-116n` (Terminus 8x16), the family and cell size
+Debian's console-setup uses, instead of `ter-132n` (16x32). `build.sh` adds
+`ca-certificates` and fails the build if `/etc/ssl/certs/ca-certificates.crt` or
+the font file is missing, because neither is visible to the serial gate. The
+kernel fragment adds `CONFIG_FB_EFI` and `CONFIG_DRM_BOCHS`, so the UEFI
+installer ISO has a console on the firmware's framebuffer and QEMU's stdvga has
+one too; that is what made the countdown and shutdown screenshots possible. The
+new `bmx-shutdown` inittab action raises the kernel console log level and runs
+OpenRC's shutdown on tty1; `/usr/local/sbin/reboot` and `/usr/local/sbin/poweroff`
+do the same before signalling init, so the monitor shows the stopping services
+and the kernel messages with their `[ seconds ]`. `bmx-check` reports
+`bmx: tls certificates ready`, `bmx: bmx-shutdown ready`, `bmx: reboot ready` and
+`bmx: poweroff ready`, and the gate asserts all four. A controlled
+`echo '<0>BMX-KERNEL-CONSOLE-TEST' > /dev/kmsg` proved the kernel console paints
+tty1; the shutdown messages appear there until the video driver's shutdown
+handler releases the display, exactly as on a Debian console.

@@ -63,6 +63,14 @@ CONFIG_DRM_FBDEV_EMULATION=y
 CONFIG_FRAMEBUFFER_CONSOLE=y
 CONFIG_FRAMEBUFFER_CONSOLE_DETECT_PRIMARY=y
 
+# A UEFI-only machine without a DRM driver still needs a console: efifb paints
+# the firmware's GOP framebuffer, so the installer ISO shows its TUI before (and
+# without) i915. QEMU's stdvga has no i915 either; bochs-drm gives the emulated
+# disks a screen, which is what lets the gate's QEMU runs show the console and
+# the shutdown output without the board.
+CONFIG_FB_EFI=y
+CONFIG_DRM_BOCHS=y
+
 # Input for that console. defconfig already builds the USB stack in (modules are
 # off), but the local console depends on these, so the dependency is pinned here
 # instead of resting on a default that a defconfig bump could drop. evdev feeds

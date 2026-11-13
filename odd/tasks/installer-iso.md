@@ -13,7 +13,9 @@ work-unit commits. Gate: `./test.sh` plus an install-and-boot QEMU check.
   and a partitioning mode.
 - S3: the default mode is one button: it installs to the first internal disk with
   the default layout and `es`; if no key is pressed within 10 seconds, the same
-  action starts automatically from a dialog-style countdown screen.
+  action starts automatically from a countdown screen drawn in the TUI's own
+  dialog theme (blue screen, white panel, blue title), with only the number line
+  rewritten in place.
 - S4: the default layout is the current contract: MBR signature generated per
   install, stage 1 at LBA 0, stage 2 at LBA 1, the kernel at LBA 17, a FAT32 ESP
   from LBA 2048 and an ext4 root filling the rest.
@@ -32,6 +34,9 @@ work-unit commits. Gate: `./test.sh` plus an install-and-boot QEMU check.
 - S9: the destructive write starts only from the explicit default action, the
   manual confirmation, or the 10 second countdown that stands in for the default
   action.
+- S10: the default action asks no further questions when the target disk already
+  holds data: the old signatures are wiped, the MBR is rewritten and both
+  filesystems are formatted with the tools' force flags.
 
 ## Tasks
 
@@ -45,6 +50,7 @@ work-unit commits. Gate: `./test.sh` plus an install-and-boot QEMU check.
 - T5 QEMU install-and-boot check - done
 - T6 docs - done
 - T7 exercise the manual cfdisk path and the USB boot on the board - pending
+- T8 dialog-theme countdown and unconditional default overwrite - inline - done (this commit)
 
 ## Log
 
@@ -141,3 +147,33 @@ The countdown no longer uses `dialog` (which repaints the whole box every
 second). It draws one bordered box with absolute cursor positioning and rewrites
 only the countdown line in place; the box is centred from `stty size` and fits
 the 80-column installer console.
+
+L12: "Ok. Una serie de cambios: el contador sigue un estilo plano, no sigue el
+diseño de la interfaz TUI del resto del instalador; me gustaría que ese fuera el
+caso. Segundo, si el disco de destino ya tiene datos, y cargas la instalación por
+defecto, o el contador llega a cero, no debería exigir confirmación adicional,
+sino que debe proceder y hacer override a todo lo que haya dentro del disco."
+
+The countdown now copies dialog's compiled-in theme instead of the terminal
+default: `\033[44m` clear for the blue screen, a white panel (`47`) with black
+body text (`30`), a white frame and a blue title (`34;1`) in the top rule, plus a
+black shadow. The frame uses Unicode box glyphs: the console does not apply the
+`ESC(0` graphics set that dialog's ncurses emits, and ncurses itself draws ACS as
+UTF-8 on this terminal. It still paints once and rewrites only the countdown
+line, so the style change does not bring back the flicker. `dialog` itself
+cannot draw this screen: it works on the alternate screen, so an infobox is gone
+by the time the countdown resumes.
+
+The one-button path also stops depending on a blank disk. `write_mbr_default`
+runs `wipefs -a` and then `sfdisk --force --wipe always --wipe-partitions
+always`, `mkfs.fat` gets `-I` and `mkfs.ext4` gets `-F`, so a previous
+installation, including its filesystem signatures, is overwritten without any
+question. `installer/test-iso.sh` gains `BMX_TEST_KEEP=1` to install over the
+target it installed on the previous run.
+
+Verified after the change: `./test.sh` 3 PASS / 0 FAIL on the three paths;
+`installer/test-iso.sh` completes from a blank 2 GiB disk and from the disk it
+installed on the previous run (`BMX_TEST_KEEP=1`), and both boots reach OpenRC
+and the banner. QEMU screendumps of the ISO show the countdown box in the same
+blue/white/blue-title theme as the dialog menu, with the number changing from 7
+to 5 in place, and the menu opens on any key.

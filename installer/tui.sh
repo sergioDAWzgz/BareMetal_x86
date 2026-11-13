@@ -83,8 +83,6 @@ default_install() {
     DISK=/dev/$name
     LAYOUT=auto
     log "default install on $DISK"
-    dialog --title "Instalando" --infobox \
-        "Instalación por defecto en $DISK..." 6 60
     install_system "$DISK" "$LAYOUT"
     dialog --title "Listo" --msgbox \
         "Instalación completada.\nRetira el medio de instalación y reinicia." 10 60
@@ -92,47 +90,98 @@ default_install() {
     reboot -f
 }
 
+# The first screen is the one screen in the installer that cannot use dialog:
+# dialog draws on the alternate screen and takes it away when it exits, so a
+# per-second infobox repaints the whole screen. This reproduces dialog's
+# compiled-in theme instead (cyan on blue screen, bold white frame, blue title,
+# black on white body) and paints it once. Only the countdown line is rewritten,
+# so the number changes without a full repaint.
 countdown_aborted() {
     pressed=0
     rows=$(stty size < /dev/tty0 2>/dev/null | cut -d' ' -f1)
     cols=$(stty size < /dev/tty0 2>/dev/null | cut -d' ' -f2)
     case "$rows" in '' | *[!0-9]*) rows=25 ;; esac
     case "$cols" in '' | *[!0-9]*) cols=80 ;; esac
-    width=68
-    [ "$width" -gt $((cols - 4)) ] && width=$((cols - 4))
+    width=64
     height=10
+    [ "$width" -gt $((cols - 2)) ] && width=$((cols - 2))
+    [ "$height" -gt $((rows - 2)) ] && height=$((rows - 2))
     top=$(((rows - height) / 2 + 1))
     left=$(((cols - width) / 2 + 1))
-    [ "$top" -lt 1 ] && top=1
-    [ "$left" -lt 1 ] && left=1
     inner=$((width - 2))
-    fmt="%-${inner}s"
-    border=$(printf '%*s' "$inner" '' | tr ' ' '-')
-    row() {
-        printf '\033[%d;%dH|%s|' "$1" "$left" "$(printf "$fmt" "$2")" > /dev/tty0
+    text_left=$((left + 1))
+    title=" BareMetal_x86 "
+    dashes=$((inner - 17))
+    [ "$dashes" -lt 0 ] && dashes=0
+    dleft=$((dashes / 2))
+    dright=$((dashes - dleft))
+    repeat() {
+        n=$1
+        glyph=$2
+        out=
+        while [ "$n" -gt 0 ]; do
+            out="$out$glyph"
+            n=$((n - 1))
+        done
+        printf '%s' "$out"
     }
-    printf '\033[2J\033[H' > /dev/tty0
-    printf '\033[%d;%dH+%s+' "$top" "$left" "$border" > /dev/tty0
-    row $((top + 1)) " BareMetal_x86"
-    row $((top + 2)) ""
-    row $((top + 3)) "   Instalación por defecto en 10 segundos."
-    row $((top + 4)) ""
-    row $((top + 5)) "   Se usará el primer disco interno, teclado español"
-    row $((top + 6)) "   y todo el disco."
-    row $((top + 7)) ""
-    row $((top + 8)) "   Pulsa cualquier tecla para configurar manualmente."
-    printf '\033[%d;%dH+%s+' $((top + 9)) "$left" "$border" > /dev/tty0
+    rule=$(repeat "$inner" '─')
+    lrule=$(repeat "$dleft" '─')
+    rrule=$(repeat "$dright" '─')
+
+    printf '\033[44m\033[2J\033[H' > /dev/tty0
+    row=$top
+    while [ "$row" -lt $((top + height)) ]; do
+        printf '\033[%d;%dH\033[47m%*s' "$row" "$left" "$width" '' > /dev/tty0
+        row=$((row + 1))
+    done
+    printf '\033[%d;%dH\033[47;1m┌%s\033[47;34;1m┤%s├\033[47;1m%s┐' \
+        "$top" "$left" "$lrule" "$title" "$rrule" > /dev/tty0
+    row=$((top + 1))
+    while [ "$row" -lt $((top + height - 1)) ]; do
+        printf '\033[%d;%dH\033[47;1m│' "$row" "$left" > /dev/tty0
+        printf '\033[%d;%dH\033[47;1m│' "$row" $((left + width - 1)) > /dev/tty0
+        row=$((row + 1))
+    done
+    printf '\033[%d;%dH\033[47;1m└%s┘' \
+        $((top + height - 1)) "$left" "$rule" > /dev/tty0
+    if [ $((left + width)) -le "$cols" ]; then
+        row=$((top + 1))
+        while [ "$row" -le $((top + height)) ] && [ "$row" -le "$rows" ]; do
+            printf '\033[%d;%dH\033[40m ' "$row" $((left + width)) > /dev/tty0
+            row=$((row + 1))
+        done
+    fi
+    if [ $((top + height)) -le "$rows" ]; then
+        printf '\033[%d;%dH\033[40m%*s' $((top + height)) $((left + 1)) \
+            $((width - 1)) '' > /dev/tty0
+    fi
+    printf '\033[%d;%dH\033[47;30m%s' $((top + 3)) "$text_left" \
+        "   Se usará el primer disco interno, teclado español" > /dev/tty0
+    printf '\033[%d;%dH\033[47;30m%s' $((top + 4)) "$text_left" \
+        "   y todo el disco." > /dev/tty0
+    printf '\033[%d;%dH\033[47;30m%s' $((top + 6)) "$text_left" \
+        "   Pulsa cualquier tecla para configurar manualmente." > /dev/tty0
+
     stty -icanon min 1 time 0 < /dev/tty0 2>/dev/null || true
     i=10
     while [ "$i" -gt 0 ]; do
-        printf '\033[%d;%dH|%s|' $((top + 3)) "$left" \
-            "$(printf "$fmt" "   Instalación por defecto en $i segundos.")" > /dev/tty0
+        if [ "$i" -eq 1 ]; then unit=segundo; else unit=segundos; fi
+        printf '\033[%d;%dH\033[47;30m   Instalación por defecto en %2d %s. ' \
+            $((top + 1)) "$text_left" "$i" "$unit" > /dev/tty0
         if timeout 1 dd bs=1 count=1 < /dev/tty0 >/dev/null 2>&1; then
             pressed=1
             break
         fi
         i=$((i - 1))
     done
+    if [ "$pressed" -eq 0 ]; then
+        printf '\033[%d;%dH\033[47;30m%*s' $((top + 1)) "$text_left" "$inner" '' \
+            > /dev/tty0
+        printf '\033[%d;%dH\033[47;30m   Instalando el sistema... ' \
+            $((top + 1)) "$text_left" > /dev/tty0
+    fi
+    printf '\033[0m' > /dev/tty0
     stty sane < /dev/tty0 2>/dev/null || true
     [ "$pressed" -eq 1 ]
 }

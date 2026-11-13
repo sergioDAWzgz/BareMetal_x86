@@ -134,13 +134,22 @@ and enters it before starting the login shell. When the shells are about to star
 `bmx-clear` wipes the local VT (screen and scrollback), so tty1 opens on a blank
 screen; `bmx-banner` then prints the OS name and the running kernel (`uname -r`).
 The shells run bash with a Debian-like coloured prompt and `ls`/`grep` colours
-from `/etc/profile.d/bmx-color.sh`; `bmx-console-font` sets a 16x32 Terminus font
-on the monitor (the family Debian's console-setup uses) and the banner leaves a
-blank line before the prompt. COM1 keeps the boot log and a plain copy of the
-banner. COM1 remains the debug channel at 115200 8N1, no flow control. A
-USB-serial adapter and the board are both DTE, so the cable has to be
-**null-modem**: TX and RX cross. A straight-through cable shows the boot log and
-never delivers input.
+from `/etc/profile.d/bmx-color.sh`; `bmx-console-font` sets Terminus 8x16 on the
+monitor, the family and cell size Debian's console-setup uses, and the banner
+leaves a blank line before the prompt. The kernel also carries `efifb` and
+QEMU's `bochs-drm`: the first gives the UEFI installer a console on the
+firmware's framebuffer, the second gives the emulated gate a screen, so the
+console and the shutdown behaviour can be checked without the board. The rootfs
+carries the Alpine `ca-certificates` bundle at
+`/etc/ssl/certs/ca-certificates.crt`, so TLS clients work without any extra
+package. `reboot` and `poweroff` are small wrappers in
+`/usr/local/sbin`: they raise the kernel console log level and let OpenRC's
+shutdown run on tty1, so the monitor shows the stopping services and the kernel
+shutdown messages with their `[ seconds ]` timestamps instead of a silent
+screen. COM1 keeps the boot log and a plain copy of the banner. COM1 remains the
+debug channel at 115200 8N1, no flow control. A USB-serial adapter and the board
+are both DTE, so the cable has to be **null-modem**: TX and RX cross. A
+straight-through cable shows the boot log and never delivers input.
 
 ### How ACPI is found
 
@@ -384,22 +393,29 @@ Write the ISO to a USB stick or attach it as a CD. The board boots it through
 UEFI; the installer itself has no BIOS path (the installed system still boots
 both paths).
 
-The first screen shows a 10 second countdown in a dialog-style box whose number
-is redrawn in place, without repainting the whole screen. If no key is pressed,
-the default install runs: first internal disk, Spanish console keymap, one MBR
-with a 64 MiB FAT32 ESP and an ext4 root that fills the rest of the disk, and
-the same boot chain as the prebuilt image. Any key opens the menu, where the
-keyboard, the target disk and `cfdisk` manual partitioning can be chosen. Manual mode requires
-one FAT32 partition (type `c`) and one ext4 root (type `83`), with the first
-partition starting after sector 144; the installer generates the disk signature
-and patches `root=PARTUUID=<disk>-<part>` into the kernel before writing it.
+The first screen is drawn in the same visual style as the rest of the TUI: a
+blue screen with a white panel and a blue title, the theme `dialog` uses, but
+painted directly on tty0 because `dialog` draws on the alternate screen and
+would repaint everything on exit. Only the countdown line is rewritten, so the
+number changes in place without a full-screen flicker. If no key is pressed, the
+default install runs: first internal disk, Spanish console keymap, one MBR with a
+64 MiB FAT32 ESP and an ext4 root that fills the rest of the disk, and the same
+boot chain as the prebuilt image. The default path asks no questions even when
+the target already holds an installation: it wipes the old signatures, rewrites
+the table and reformats both filesystems. Any key opens the menu, where the
+keyboard, the target disk and `cfdisk` manual partitioning can be chosen. Manual
+mode requires one FAT32 partition (type `c`) and one ext4 root (type `83`), with
+the first partition starting after sector 144; the installer generates the disk
+signature and patches `root=PARTUUID=<disk>-<part>` into the kernel before
+writing it.
 
 The chosen keymap is stored as `/etc/keymap` in the installed rootfs and loaded
 by `bmx-keymap` at boot; the default is `es`. `installer/test-iso.sh` installs
 into a blank 2 GiB QEMU disk and boots the result through OVMF; it needs `qemu`,
 `ovmf`, `mtools` and `python3`, and `BMX_TEST_MEDIA=usb` or `BMX_TEST_MEDIA=fat`
 boots the ISO as a raw USB image or as a Rufus-style extracted FAT stick instead
-of a CD-ROM.
+of a CD-ROM. `BMX_TEST_KEEP=1` reuses the target disk, so running the script a
+second time exercises the default install over an existing installation.
 
 The installer is destructive: it rewrites the target disk's MBR and both
 filesystems.

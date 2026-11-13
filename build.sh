@@ -371,7 +371,7 @@ ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/$ALPINE_BRANCH"
 ALPINE_MINIROOTFS_SHA256=cdaa38cb8de3537967ee5b6c9b6cd00cc962da2b018e6eea48696bb274923012
 ALPINE_APK_TOOLS=apk-tools-static-3.0.9-r0.apk
 ALPINE_APK_TOOLS_SHA256=0a1a0682375f66a83b7b903f6e4638ccfe312547d50d336b5f2be9fc391281be
-ALPINE_PACKAGES="alpine-base bash ffmpeg font-terminus gpm grep kbd kbd-bkeymaps libva libva-intel-driver libva-utils linux-firmware-rtl_nic mesa-dri-gallium mpv"
+ALPINE_PACKAGES="alpine-base bash ca-certificates ffmpeg font-terminus gpm grep kbd kbd-bkeymaps libva libva-intel-driver libva-utils linux-firmware-rtl_nic mesa-dri-gallium mpv"
 ALPINE_CLIP_URL="https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_1MB.mp4"
 ALPINE_CLIP_SHA256=38d763af0161e28145e6300d9a5b3b1e4a387ed8f6c4ba7ac1a5f2948d8fac51
 ALPINE_CACHE="$LINUX_CACHE/alpine-$ALPINE_VERSION"
@@ -428,6 +428,17 @@ if [ ! -f "$ALPINE_CACHE/.rootfs-$ROOTFS_STAMP" ]; then
   touch "$ALPINE_CACHE/.rootfs-$ROOTFS_STAMP"
 fi
 
+# The font and the CA bundle are static files the serial gate cannot see, so a
+# package rename or a missing dependency fails the build here instead of
+# producing a quiet image.
+for asset in "$ALPINE_ROOT/usr/share/consolefonts/ter-116n.psf.gz" \
+             "$ALPINE_ROOT/etc/ssl/certs/ca-certificates.crt"; do
+  if [ ! -e "$asset" ]; then
+    echo "error: $asset is missing from the Alpine rootfs" >&2
+    exit 1
+  fi
+done
+
 # Two root shells, both deliberate on a bench image: tty1 is the board's own
 # console (monitor, USB or PS/2 keyboard) and ttyS0 is the debug channel on
 # COM1, which drops straight to a shell without a login prompt. bmx-shell puts
@@ -460,7 +471,7 @@ cat > "$ALPINE_ROOT/etc/inittab" <<'EOF'
 tty1::respawn:/usr/local/bin/bmx-shell
 ttyS0::respawn:/usr/local/bin/bmx-shell
 ::ctrlaltdel:/sbin/reboot
-::shutdown:/sbin/openrc shutdown
+::shutdown:/usr/local/bin/bmx-shutdown
 EOF
 
 # The board's two NICs are the RTL8111H behind r8169 and the QEMU gate emulates
@@ -536,6 +547,11 @@ if [ -f /lib/firmware/rtl_nic/rtl8168h-2.fw ] ||
 else
     echo "bmx: network firmware missing"
 fi
+if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+    echo "bmx: tls certificates ready"
+else
+    echo "bmx: tls certificates missing"
+fi
 if ! command -v mpv >/dev/null 2>&1; then
     echo "bmx: mpv missing"
 elif mpv --version >/dev/null 2>&1; then
@@ -545,8 +561,10 @@ else
 fi
 for script in /usr/local/bin/bmx-shell /usr/local/bin/bmx-keymap \
               /usr/local/bin/bmx-console-font /usr/local/bin/bmx-clear \
-              /usr/local/bin/bmx-banner /usr/local/bin/bmx-net \
-              /usr/local/bin/bmx-decode /usr/local/bin/bmx-play; do
+              /usr/local/bin/bmx-banner /usr/local/bin/bmx-shutdown \
+              /usr/local/bin/bmx-net /usr/local/bin/bmx-decode \
+              /usr/local/bin/bmx-play /usr/local/sbin/reboot \
+              /usr/local/sbin/poweroff; do
     name=${script##*/}
     if [ -x "$script" ] && sh -n "$script"; then
         echo "bmx: $name ready"
@@ -596,8 +614,10 @@ EOF
 
 cat > "$ALPINE_ROOT/usr/local/bin/bmx-console-font" <<'EOF'
 #!/bin/sh
-# A larger Terminus console font, the family Debian's console-setup uses.
-font=/usr/share/consolefonts/ter-132n.psf.gz
+# Debian's console font: Terminus 8x16, the family and size console-setup uses
+# (Lat15-Terminus16). The kernel's built-in font is the same cell size, so this
+# replaces the glyphs without changing the console geometry.
+font=/usr/share/consolefonts/ter-116n.psf.gz
 [ -x /usr/sbin/setfont ] || exit 0
 [ -f "$font" ] || exit 0
 setfont -C /dev/tty1 "$font" 2>/dev/null || true
@@ -626,6 +646,32 @@ cat > "$ALPINE_ROOT/usr/local/bin/bmx-clear" <<'EOF'
 # local virtual console so tty1 opens on an empty screen. COM1 keeps the full
 # log for debugging. CSI 3J flushes the VT scrollback as well as the screen.
 printf '\033[H\033[3J' > /dev/tty1
+EOF
+
+cat > "$ALPINE_ROOT/usr/local/bin/bmx-shutdown" <<'EOF'
+#!/bin/sh
+# The inittab shutdown action; its output goes to the local screen with the
+# kernel log level raised so all messages and their timestamps are visible.
+dmesg -n 8 2>/dev/null || true
+exec >/dev/tty1 2>&1
+exec /sbin/openrc shutdown
+EOF
+
+mkdir -p "$ALPINE_ROOT/usr/local/sbin"
+cat > "$ALPINE_ROOT/usr/local/sbin/reboot" <<'EOF'
+#!/bin/sh
+# Show the kernel shutdown log with timestamps on the local screen.
+dmesg -n 8 2>/dev/null || true
+printf '\nReiniciando el sistema...\n' > /dev/tty1
+exec /sbin/reboot "$@"
+EOF
+
+cat > "$ALPINE_ROOT/usr/local/sbin/poweroff" <<'EOF'
+#!/bin/sh
+# Show the kernel shutdown log with timestamps on the local screen.
+dmesg -n 8 2>/dev/null || true
+printf '\nApagando el sistema...\n' > /dev/tty1
+exec /sbin/poweroff "$@"
 EOF
 
 cat > "$ALPINE_ROOT/usr/local/bin/bmx-net" <<'EOF'
@@ -718,10 +764,13 @@ chmod +x "$ALPINE_ROOT/usr/local/bin/bmx-check" \
          "$ALPINE_ROOT/usr/local/bin/bmx-console-font" \
          "$ALPINE_ROOT/usr/local/bin/bmx-clear" \
          "$ALPINE_ROOT/usr/local/bin/bmx-banner" \
+         "$ALPINE_ROOT/usr/local/bin/bmx-shutdown" \
          "$ALPINE_ROOT/usr/local/bin/bmx-net" \
          "$ALPINE_ROOT/usr/local/bin/bmx-mouse" \
          "$ALPINE_ROOT/usr/local/bin/bmx-decode" \
-         "$ALPINE_ROOT/usr/local/bin/bmx-play"
+         "$ALPINE_ROOT/usr/local/bin/bmx-play" \
+         "$ALPINE_ROOT/usr/local/sbin/reboot" \
+         "$ALPINE_ROOT/usr/local/sbin/poweroff"
 
 # busybox-suid installs bbsuid execute-only, and mke2fs -d runs unprivileged, so
 # it cannot read the file to copy it. The image drops into a root shell and never
