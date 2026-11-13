@@ -103,3 +103,13 @@ disk booted through OVMF to OpenRC (`VFS: Mounted root ... 8:2`). The chosen
 keymap is written to `/etc/keymap` and loaded by `bmx-keymap` in the installed
 rootfs. The manual `cfdisk` path is implemented but not yet exercised end to
 end.
+
+L8: The first USB boot on hardware failed the same way it did in QEMU: the
+initramfs init scanned block devices once, immediately after mounting devtmpfs,
+and the USB stick enumerated a second later, so it printed "ISO BMXINSTALL not
+found" and dropped to a shell without a tty. The init now retries the scan for
+up to 30 seconds and keeps PID 1 alive with a shell if the TUI exits.
+`installer/test-iso.sh` gained `BMX_TEST_MEDIA=usb`, and the end-to-end USB run
+found the stick on `/dev/sdb`, installed to the SATA disk `/dev/sda` and booted
+the result through OVMF to OpenRC. The test also removes the target image before
+truncating it, so "blank disk" is true across runs.

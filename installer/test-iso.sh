@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Installs into a blank QEMU disk with the default one-button path and then boots
 # the installed disk through OVMF. Not part of ./test.sh; run it after building
-# the ISO with installer/build-iso.sh.
+# the ISO with installer/build-iso.sh. BMX_TEST_MEDIA=usb boots the ISO as a USB
+# stick instead of a CD-ROM.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -11,19 +12,28 @@ INSTALL_LOG=build/installer/install.log
 BOOT_LOG=build/installer/installed.log
 OVMF_CODE=${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}
 OVMF_VARS=${OVMF_VARS:-/usr/share/OVMF/OVMF_VARS_4M.fd}
+MEDIA=${BMX_TEST_MEDIA:-cd}
 
 [ -f "$ISO" ] || { echo "FAIL: $ISO is missing, run installer/build-iso.sh" >&2; exit 1; }
 mkdir -p "$(dirname "$TARGET")"
+rm -f "$TARGET"
 truncate -s 2G "$TARGET"
 rm -f "$INSTALL_LOG" "$BOOT_LOG"
 cp "$OVMF_VARS" build/installer/OVMF_VARS.fd
+
+if [ "$MEDIA" = usb ]; then
+  INSTALL_MEDIA=(-device qemu-xhci -device usb-storage,drive=usbstick
+                 -drive if=none,id=usbstick,file="$ISO",format=raw)
+else
+  INSTALL_MEDIA=(-cdrom "$ISO")
+fi
 
 qemu-system-x86_64 -machine q35 -cpu qemu64 -m 1024 \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file=build/installer/OVMF_VARS.fd \
   -drive file="$TARGET",format=raw,if=none,id=target \
   -device ide-hd,drive=target \
-  -cdrom "$ISO" -display none -serial "file:$INSTALL_LOG" -no-reboot \
+  "${INSTALL_MEDIA[@]}" -display none -serial "file:$INSTALL_LOG" -no-reboot \
   >/dev/null 2>&1 &
 pid=$!
 for _ in $(seq 1 1800); do

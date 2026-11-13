@@ -12,15 +12,21 @@ if [ -f /usr/share/bkeymaps/es/es.bmap.gz ]; then
 fi
 
 iso=
-for dev in /dev/sr* /dev/sd* /dev/vd*; do
-    [ -b "$dev" ] || continue
-    if blkid "$dev" 2>/dev/null | grep -q BMXINSTALL; then
-        iso=$dev
-        break
-    fi
+tries=0
+while [ "$tries" -lt 30 ]; do
+    for dev in /dev/sr* /dev/sd* /dev/vd*; do
+        [ -b "$dev" ] || continue
+        if blkid "$dev" 2>/dev/null | grep -q BMXINSTALL; then
+            iso=$dev
+            break
+        fi
+    done
+    [ -n "$iso" ] && break
+    sleep 1
+    tries=$((tries + 1))
 done
 if [ -z "$iso" ]; then
-    echo "BMX-INSTALLER: ISO BMXINSTALL not found" > /dev/console
+    echo "BMX-INSTALLER: ISO BMXINSTALL not found after 30 s" > /dev/console
     exec /bin/sh
 fi
 ISO_DISK=$(basename "$iso" | sed 's/[0-9]*$//')
@@ -34,4 +40,6 @@ echo "BMX-INSTALLER: ISO $iso mounted as /dev/$ISO_DISK" > /dev/console
 
 export TERM=linux
 exec </dev/tty0 >/dev/tty0 2>&1
-exec /bin/sh /installer/tui.sh
+/bin/sh /installer/tui.sh
+echo "BMX-INSTALLER: TUI exited" > /dev/console
+exec /bin/sh

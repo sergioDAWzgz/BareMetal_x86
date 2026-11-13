@@ -390,8 +390,9 @@ and patches `root=PARTUUID=<disk>-<part>` into the kernel before writing it.
 
 The chosen keymap is stored as `/etc/keymap` in the installed rootfs and loaded
 by `bmx-keymap` at boot; the default is `es`. `installer/test-iso.sh` installs
-into a blank 2 GiB QEMU disk and boots the result through OVMF; it needs `qemu`
-and `ovmf`.
+into a blank 2 GiB QEMU disk and boots the result through OVMF; it needs `qemu`,
+`ovmf` and `python3`, and `BMX_TEST_MEDIA=usb` boots the ISO as a USB stick
+instead of a CD-ROM.
 
 The installer is destructive: it rewrites the target disk's MBR and both
 filesystems.
