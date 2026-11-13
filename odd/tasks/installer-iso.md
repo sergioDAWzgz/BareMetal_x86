@@ -113,3 +113,12 @@ up to 30 seconds and keeps PID 1 alive with a shell if the TUI exits.
 found the stick on `/dev/sdb`, installed to the SATA disk `/dev/sda` and booted
 the result through OVMF to OpenRC. The test also removes the target image before
 truncating it, so "blank disk" is true across runs.
+
+L9: The first hardware attempt with Rufus in ISO Image mode failed with
+"ISOFS: Unable to identify CD-ROM format". Rufus extracts the ISO tree to a
+FAT32 volume and copies the BMXINSTALL label, so the init found the stick but
+mounted it as iso9660. The init now reads TYPE from blkid and mounts vfat or
+iso9660 accordingly. `BMX_TEST_MEDIA=fat` reproduces the extracted-FAT layout:
+the test mounted `/dev/sdb (vfat)`, installed to `/dev/sda` and booted the
+installed disk to OpenRC. Writing the ISO in Rufus DD mode keeps the ISO9660
+filesystem and also works.

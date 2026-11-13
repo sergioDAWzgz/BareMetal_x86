@@ -2,7 +2,8 @@
 # Installs into a blank QEMU disk with the default one-button path and then boots
 # the installed disk through OVMF. Not part of ./test.sh; run it after building
 # the ISO with installer/build-iso.sh. BMX_TEST_MEDIA=usb boots the ISO as a USB
-# stick instead of a CD-ROM.
+# stick instead of a CD-ROM; BMX_TEST_MEDIA=fat reproduces a Rufus ISO-mode stick
+# (a FAT32 volume with the extracted payload and the BMXINSTALL label).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -21,7 +22,26 @@ truncate -s 2G "$TARGET"
 rm -f "$INSTALL_LOG" "$BOOT_LOG"
 cp "$OVMF_VARS" build/installer/OVMF_VARS.fd
 
-if [ "$MEDIA" = usb ]; then
+case "$MEDIA" in
+cd | usb | fat) ;;
+*)
+  echo "FAIL: BMX_TEST_MEDIA must be cd, usb or fat" >&2
+  exit 1
+  ;;
+esac
+
+if [ "$MEDIA" = fat ]; then
+  USB_IMG=$HOME/.cache/bmx/installer-test/usb.img
+  rm -f "$USB_IMG"
+  truncate -s 512M "$USB_IMG"
+  mformat -i "$USB_IMG" -F -v BMXINSTALL ::
+  mmd -i "$USB_IMG" ::/EFI ::/EFI/BOOT ::/payload
+  mcopy -i build/installer/efi.img ::/EFI/BOOT/BOOTX64.EFI /tmp/bmx-bootx64.efi
+  mcopy -i "$USB_IMG" /tmp/bmx-bootx64.efi ::/EFI/BOOT/BOOTX64.EFI
+  mcopy -s -i "$USB_IMG" build/installer/payload/* ::/payload
+  INSTALL_MEDIA=(-device qemu-xhci -device usb-storage,drive=usbstick
+                 -drive if=none,id=usbstick,file="$USB_IMG",format=raw)
+elif [ "$MEDIA" = usb ]; then
   INSTALL_MEDIA=(-device qemu-xhci -device usb-storage,drive=usbstick
                  -drive if=none,id=usbstick,file="$ISO",format=raw)
 else
