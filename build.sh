@@ -371,7 +371,7 @@ ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/$ALPINE_BRANCH"
 ALPINE_MINIROOTFS_SHA256=cdaa38cb8de3537967ee5b6c9b6cd00cc962da2b018e6eea48696bb274923012
 ALPINE_APK_TOOLS=apk-tools-static-3.0.9-r0.apk
 ALPINE_APK_TOOLS_SHA256=0a1a0682375f66a83b7b903f6e4638ccfe312547d50d336b5f2be9fc391281be
-ALPINE_PACKAGES="alpine-base ffmpeg gpm kbd-bkeymaps libva libva-intel-driver libva-utils linux-firmware-rtl_nic mesa-dri-gallium mpv"
+ALPINE_PACKAGES="alpine-base bash ffmpeg gpm kbd-bkeymaps libva libva-intel-driver libva-utils linux-firmware-rtl_nic mesa-dri-gallium mpv"
 ALPINE_CLIP_URL="https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_1MB.mp4"
 ALPINE_CLIP_SHA256=38d763af0161e28145e6300d9a5b3b1e4a387ed8f6c4ba7ac1a5f2948d8fac51
 ALPINE_CACHE="$LINUX_CACHE/alpine-$ALPINE_VERSION"
@@ -453,6 +453,7 @@ cat > "$ALPINE_ROOT/etc/inittab" <<'EOF'
 ::wait:/sbin/openrc default
 ::wait:/bin/dmesg -n 5
 ::wait:/usr/local/bin/bmx-clear
+::wait:/usr/local/bin/bmx-banner
 ::once:/usr/local/bin/bmx-net
 ::once:/usr/local/bin/bmx-mouse
 tty1::respawn:/usr/local/bin/bmx-shell
@@ -542,8 +543,9 @@ else
     echo "bmx: mpv broken"
 fi
 for script in /usr/local/bin/bmx-shell /usr/local/bin/bmx-keymap \
-              /usr/local/bin/bmx-clear /usr/local/bin/bmx-net \
-              /usr/local/bin/bmx-decode /usr/local/bin/bmx-play; do
+              /usr/local/bin/bmx-clear /usr/local/bin/bmx-banner \
+              /usr/local/bin/bmx-net /usr/local/bin/bmx-decode \
+              /usr/local/bin/bmx-play; do
     name=${script##*/}
     if [ -x "$script" ] && sh -n "$script"; then
         echo "bmx: $name ready"
@@ -568,11 +570,35 @@ cat > "$ALPINE_ROOT/usr/local/bin/bmx-shell" <<'EOF'
 #!/bin/sh
 # The console opens as root in root's home, not at the filesystem root. busybox
 # init exports PATH, SHELL, USER and TERM but not HOME, so set it here and let
-# the login shell read the profile from the right place.
+# the login shell read the profile from the right place. Bash gives the console
+# the Debian-like coloured prompt from /etc/profile.d/bmx-color.sh.
 HOME=/root
 export HOME
 cd "$HOME" 2>/dev/null || cd /
+if [ -x /bin/bash ]; then
+    exec /bin/bash -l
+fi
 exec /bin/sh -l
+EOF
+
+cat > "$ALPINE_ROOT/etc/profile.d/bmx-color.sh" <<'EOF'
+# Debian-like colours for the interactive console shells.
+case $- in
+*i*) ;;
+*) return 0 ;;
+esac
+export LS_COLORS='di=01;34:ln=01;36:ex=01;32:*.tar=01;31:*.tgz=01;31:*.gz=01;31:*.zip=01;31:*.mp4=01;35:*.mkv=01;35:*.png=01;35:*.jpg=01;35'
+alias ls='ls --color=auto'
+alias grep='grep --color=auto'
+PS1='\[\e[1;32m\]\u@\h:\w\$\[\e[0m\] '
+EOF
+
+cat > "$ALPINE_ROOT/usr/local/bin/bmx-banner" <<'EOF'
+#!/bin/sh
+# Name the OS and the running Linux kernel when the console comes up.
+version=$(uname -r)
+printf '\033[1;36mBareMetal_x86\033[0m\nKernel: %s\n' "$version" > /dev/tty1
+printf 'BareMetal_x86\nKernel: %s\n' "$version" > /dev/console
 EOF
 
 cat > "$ALPINE_ROOT/usr/local/bin/bmx-keymap" <<'EOF'
@@ -680,6 +706,7 @@ chmod +x "$ALPINE_ROOT/usr/local/bin/bmx-check" \
          "$ALPINE_ROOT/usr/local/bin/bmx-shell" \
          "$ALPINE_ROOT/usr/local/bin/bmx-keymap" \
          "$ALPINE_ROOT/usr/local/bin/bmx-clear" \
+         "$ALPINE_ROOT/usr/local/bin/bmx-banner" \
          "$ALPINE_ROOT/usr/local/bin/bmx-net" \
          "$ALPINE_ROOT/usr/local/bin/bmx-mouse" \
          "$ALPINE_ROOT/usr/local/bin/bmx-decode" \

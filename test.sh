@@ -148,6 +148,7 @@ common_assertions() {
   grep -q 'bmx: bmx-shell ready'                "$log" || fail "$label: bmx-shell is missing or does not parse"
   grep -q 'bmx: bmx-keymap ready'               "$log" || fail "$label: bmx-keymap is missing or does not parse"
   grep -q 'bmx: bmx-clear ready'                "$log" || fail "$label: bmx-clear is missing or does not parse"
+  grep -q 'bmx: bmx-banner ready'               "$log" || fail "$label: bmx-banner is missing or does not parse"
   grep -q 'bmx: bmx-net ready'                  "$log" || fail "$label: bmx-net is missing or does not parse"
   grep -q 'kbd: controller ready'               "$log" || fail "$label: 8042 controller was not initialised"
   grep -q 'Phase 3 complete'                    "$log" || fail "$label: phase 3 did not complete"
@@ -199,6 +200,8 @@ grep -Eq 'acpi: rsdp at .* via (ebda|bios rom)' "$LOG" || fail 'bios: the RSDP w
 common_assertions "$LOG" bios
 grep -Eq 'bmx:(~|/root)#' "$LOG" \
   || fail 'bios: the console shell did not start in /root'
+grep -q '^Kernel: 6\.12\.' "$LOG" \
+  || fail 'bios: the boot banner is missing'
 grep -q 'bmx: network up eth0 [0-9]' "$LOG" \
   || fail 'bios: DHCP did not configure eth0'
 grep -q 'bmx: network up eth1 [0-9]' "$LOG" \

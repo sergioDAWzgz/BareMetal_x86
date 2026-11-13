@@ -201,6 +201,10 @@ open until the board itself says which one it uses.
       printing over tty0/ttyS0
 - [x] clear the local screen when the boot finishes: `bmx-clear` wipes the VT
       (screen and scrollback) before the shells start; COM1 keeps the boot log
+- [x] name the system on the console: `bmx-banner` prints `BareMetal_x86` and
+      the running kernel from `uname -r` before the shell starts
+- [x] run the console shells with bash and Debian-like colours: a green
+      `root@bmx:~#` prompt, `ls`/`grep` colour, and the banner on tty1
 - [ ] re-check the 1080p60 display path: `bmx-play` now uses `--profile=fast` and
       refuses the software fallback; the first run dropped 177 of 600 frames, so
       the display/render path is the limit, not the decode
@@ -250,8 +254,8 @@ not only sampled by hand.
       `BOOTX64.EFI` and the ISO carries the OS payload
 - [x] an installer TUI on the local console: keyboard layout (default `es`),
       destination disk, default whole-disk layout, manual `cfdisk` partitioning
-- [x] a one-button default path behind a 20 second countdown; the ext4 root
-      takes all the space left after the 64 MiB ESP
+- [x] a one-button default path behind a 10 second dialog countdown; the ext4
+      root takes all the space left after the 64 MiB ESP
 - [x] manual MBR layouts: up to four primaries, one FAT32 ESP and one ext4 root,
       the first partition after sector 144; the installer generates the disk
       signature and patches `root=PARTUUID=<disk>-<part>` in the kernel

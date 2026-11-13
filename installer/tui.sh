@@ -16,12 +16,12 @@ load_keymap() {
 
 choose_keymap() {
     choice=$(dialog --stdout --title "Distribución de teclado" --default-item es \
-        --menu "Elegí el teclado de la consola:" 15 60 8 \
+        --menu "Elige el teclado de la consola:" 15 60 8 \
         es "Español" us "Inglés (US)" latam "Latinoamérica" de "Alemán" \
         fr "Francés" it "Italiano" pt "Portugués")
     [ -n "$choice" ] || return 0
     load_keymap "/usr/share/bkeymaps/$choice/$choice.bmap.gz" ||
-        dialog --msgbox "No se encontró el keymap $choice." 8 50
+        dialog --msgbox "No se encontró el mapa de teclado $choice." 8 50
 }
 
 choose_disk() {
@@ -34,7 +34,7 @@ choose_disk() {
         return 0
     }
     choice=$(dialog --stdout --title "Disco de destino" --menu \
-        "Se borrará el disco elegido:" 15 70 6 $items)
+        "Se borrará el disco seleccionado:" 15 70 6 $items)
     [ -n "$choice" ] && DISK=/dev/$choice
 }
 
@@ -42,7 +42,7 @@ choose_manual() {
     [ -n "$DISK" ] || choose_disk
     [ -n "$DISK" ] || return 0
     dialog --title "Particionado manual" --msgbox \
-        "Se abrirá cfdisk sobre $DISK.\nCreá una partición FAT32 (tipo c) para el ESP y una Linux (tipo 83) para la raíz.\nLa primera partición debe empezar después del sector 144." \
+        "Se abrirá cfdisk sobre $DISK.\nCrea una partición FAT32 (tipo c) para el ESP y una Linux (tipo 83) para la raíz.\nLa primera partición debe empezar después del sector 144." \
         12 70
     cfdisk "$DISK"
     if validate_manual "$DISK"; then
@@ -69,7 +69,7 @@ do_install() {
         "Particionando y copiando el sistema en $DISK..." 6 60
     install_system "$DISK" "$LAYOUT"
     dialog --title "Listo" --msgbox \
-        "Instalación completa.\nQuitá el medio de instalación y reiniciá." 10 60
+        "Instalación completada.\nRetira el medio de instalación y reinicia." 10 60
     sync
     reboot -f
 }
@@ -87,7 +87,7 @@ default_install() {
         "Instalación por defecto en $DISK..." 6 60
     install_system "$DISK" "$LAYOUT"
     dialog --title "Listo" --msgbox \
-        "Instalación completa.\nQuitá el medio de instalación y reiniciá." 10 60
+        "Instalación completada.\nRetira el medio de instalación y reinicia." 10 60
     sync
     reboot -f
 }
@@ -95,9 +95,11 @@ default_install() {
 countdown_aborted() {
     pressed=0
     stty -icanon min 1 time 0 < /dev/tty0 2>/dev/null || true
-    i=20
+    i=10
     while [ "$i" -gt 0 ]; do
-        printf '\rInstalación por defecto en %2d s; cualquier tecla para elegir ' "$i" > /dev/tty0
+        dialog --title "BareMetal_x86" --infobox \
+            "Instalación por defecto en $i segundos.\n\nSe usará el primer disco interno, teclado español y todo el disco.\nPulsa cualquier tecla para configurar manualmente." \
+            11 70
         if timeout 1 dd bs=1 count=1 < /dev/tty0 >/dev/null 2>&1; then
             pressed=1
             break
@@ -105,7 +107,6 @@ countdown_aborted() {
         i=$((i - 1))
     done
     stty sane < /dev/tty0 2>/dev/null || true
-    printf '\n' > /dev/tty0
     [ "$pressed" -eq 1 ]
 }
 

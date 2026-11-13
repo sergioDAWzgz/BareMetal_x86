@@ -106,7 +106,7 @@ qemu-system-x86_64 -machine q35 -cpu qemu64 -m 1024 \
   >/dev/null 2>&1 &
 pid=$!
 for _ in $(seq 1 300); do
-  if grep -q 'OpenRC [0-9]' "$BOOT_LOG" 2>/dev/null; then
+  if grep -q '^Kernel: 6\.12\.' "$BOOT_LOG" 2>/dev/null; then
     break
   fi
   kill -0 "$pid" 2>/dev/null || break
@@ -117,4 +117,5 @@ wait "$pid" 2>/dev/null || true
 echo "=== installed boot ==="
 grep -aE 'Linux version|VFS: Mounted root|Run /sbin/init|OpenRC [0-9]' "$BOOT_LOG" | head -6
 grep -q 'OpenRC [0-9]' "$BOOT_LOG" || { echo "FAIL: installed disk did not reach OpenRC" >&2; exit 1; }
+grep -q '^Kernel: 6\.12\.' "$BOOT_LOG" || { echo "FAIL: the installed image did not print the boot banner" >&2; exit 1; }
 echo "PASS: the default install boots"

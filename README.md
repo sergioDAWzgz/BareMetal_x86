@@ -132,10 +132,13 @@ monitor and fbcon paints the virtual terminals on it, so a USB keyboard (or the
 its mouse. Both console shells start in root's home: `bmx-shell` sets `HOME=/root`
 and enters it before starting the login shell. When the shells are about to start,
 `bmx-clear` wipes the local VT (screen and scrollback), so tty1 opens on a blank
-screen; COM1 keeps the boot log. COM1 remains the debug channel at 115200 8N1,
-no flow control. A USB-serial adapter and the board are both DTE, so the cable has
-to be **null-modem**: TX and RX cross. A straight-through cable shows the boot log
-and never delivers input.
+screen; `bmx-banner` then prints the OS name and the running kernel (`uname -r`).
+The shells run bash with a Debian-like coloured prompt and `ls`/`grep` colours
+from `/etc/profile.d/bmx-color.sh`; COM1 keeps the boot log and a plain copy of
+the banner. COM1 remains the debug channel at 115200 8N1, no flow control. A
+USB-serial adapter and the board are both DTE, so the cable has to be
+**null-modem**: TX and RX cross. A straight-through cable shows the boot log and
+never delivers input.
 
 ### How ACPI is found
 
@@ -379,11 +382,12 @@ Write the ISO to a USB stick or attach it as a CD. The board boots it through
 UEFI; the installer itself has no BIOS path (the installed system still boots
 both paths).
 
-The first screen starts a 20 second countdown. If no key is pressed, the default
-install runs: first internal disk, Spanish console keymap, one MBR with a 64 MiB
-FAT32 ESP and an ext4 root that fills the rest of the disk, and the same boot
-chain as the prebuilt image. Any key opens the menu, where the keyboard, the
-target disk and `cfdisk` manual partitioning can be chosen. Manual mode requires
+The first screen shows a 10 second countdown in a dialog box. If no key is
+pressed, the default install runs: first internal disk, Spanish console keymap,
+one MBR with a 64 MiB FAT32 ESP and an ext4 root that fills the rest of the
+disk, and the same boot chain as the prebuilt image. Any key opens the menu,
+where the keyboard, the target disk and `cfdisk` manual partitioning can be
+chosen. Manual mode requires
 one FAT32 partition (type `c`) and one ext4 root (type `83`), with the first
 partition starting after sector 144; the installer generates the disk signature
 and patches `root=PARTUUID=<disk>-<part>` into the kernel before writing it.

@@ -183,3 +183,15 @@ unset), and ifupdown-ng used `(none)` as the DHCP hostname, which made its
 executor run `eval echo (none)` and print syntax errors (the lease still worked).
 The inittab now runs `hostname -F /etc/hostname` before OpenRC; the prompt is
 `bmx:~#` and the eval noise is gone.
+
+L15: "Otra cosa que me gustaría añadir al sistema: al arrancar, debería mostrar
+el nombre del sistema operativo y la versión del kernel de Linux en ejecución.
+Por último, la terminal debería usar líneas con colores de resalto importantes,
+como ocurre en Debian. Quizá haya que reemplazar SH por Bash: no pasa nada por
+hacerlo"
+
+The target rootfs now installs bash and `bmx-shell` runs `/bin/bash -l`.
+`/etc/profile.d/bmx-color.sh` sets a green `root@host:~#` prompt plus `ls` and
+`grep` colour. `bmx-banner` runs after `bmx-clear` and prints `BareMetal_x86`
+and the running `uname -r` on tty1 (coloured) and COM1 (plain). The gate asserts
+the `bmx: bmx-banner ready` marker and the `Kernel: 6.12.` banner line.

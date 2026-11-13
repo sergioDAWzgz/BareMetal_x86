@@ -2,7 +2,7 @@
 
 Feature: a bootable installer ISO that installs this system onto a chosen disk,
 with keyboard layout selection, default or manual partitioning, and a one-button
-default install behind a 20 second countdown. Branch: `main`. Delivery:
+default install behind a 10 second countdown. Branch: `main`. Delivery:
 work-unit commits. Gate: `./test.sh` plus an install-and-boot QEMU check.
 
 ## Specs
@@ -12,8 +12,8 @@ work-unit commits. Gate: `./test.sh` plus an install-and-boot QEMU check.
 - S2: the installer offers a keyboard layout (default `es`), a destination disk,
   and a partitioning mode.
 - S3: the default mode is one button: it installs to the first internal disk with
-  the default layout and `es`; if no key is pressed within 20 seconds, the same
-  action starts automatically.
+  the default layout and `es`; if no key is pressed within 10 seconds, the same
+  action starts automatically from a dialog-style countdown screen.
 - S4: the default layout is the current contract: MBR signature generated per
   install, stage 1 at LBA 0, stage 2 at LBA 1, the kernel at LBA 17, a FAT32 ESP
   from LBA 2048 and an ext4 root filling the rest.
@@ -30,7 +30,7 @@ work-unit commits. Gate: `./test.sh` plus an install-and-boot QEMU check.
   `kbd-bkeymaps` and the inittab loads it at boot. The default is `es`.
 - S8: the installer needs no network; the payload travels on the ISO.
 - S9: the destructive write starts only from the explicit default action, the
-  manual confirmation, or the 20 second countdown that stands in for the default
+  manual confirmation, or the 10 second countdown that stands in for the default
   action.
 
 ## Tasks
@@ -96,7 +96,7 @@ rootfs (e2fsprogs, dosfstools, util-linux, cfdisk, dialog, kbd-bkeymaps,
 ncurses-terminfo-base), packs it with the scripts through `gen_init_cpio`, builds
 the second kernel with the embedded initramfs, and writes
 `build/installer/bmx-installer.iso` (~214 MiB). `test-iso.sh` installed into a
-blank 2 GiB QEMU disk: the default 20 s path chose `/dev/sda`, wrote a 64 MiB ESP
+blank 2 GiB QEMU disk: the default 10 s path chose `/dev/sda`, wrote a 64 MiB ESP
 at LBA 2048 (type 0x0c) and an ext4 root at LBA 133120 with size 4061184 sectors
 (the rest of the disk), patched the PARTUUID to `75a022da-02`, and the installed
 disk booted through OVMF to OpenRC (`VFS: Mounted root ... 8:2`). The chosen
@@ -122,3 +122,14 @@ iso9660 accordingly. `BMX_TEST_MEDIA=fat` reproduces the extracted-FAT layout:
 the test mounted `/dev/sdb (vfat)`, installed to `/dev/sda` and booted the
 installed disk to OpenRC. Writing the ISO in Rufus DD mode keeps the ISO9660
 filesystem and also works.
+
+L10: "Perfecto. Ahora, un cambio: el instalador debería esperar 10 segundos en
+vez de 20 para cargar la configuración por defecto. También debería ser una
+pantalla del mismo estilo que el menú de configuración manual, en vez de ser una
+línea de comandos. Al terminar la instalación, el indicador de instalación
+exitosa está en español de Argentina, cuando debería usar español de España."
+
+The countdown is now 10 seconds and is drawn as a `dialog --infobox` box, one
+second per iteration, while a non-canonical `dd` on tty0 cancels it on any key.
+The TUI copy uses Spain Spanish and the success box reads "Instalación
+completada. Retira el medio de instalación y reinicia."
