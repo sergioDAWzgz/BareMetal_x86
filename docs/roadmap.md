@@ -286,7 +286,10 @@ not only sampled by hand.
 - [x] `installer/test-iso.sh` installs into a blank 2 GiB QEMU disk and boots the
       result to OpenRC through OVMF
 - [ ] exercise the manual `cfdisk` path end to end in QEMU and on the board
-- [ ] a BIOS boot path for the installer ISO (the installed OS already has both)
+- [x] a BIOS boot path for the installer ISO (the installed OS already has both):
+      isolinux loads the same kernel through an El Torito entry, and the
+      isohybrid MBR plus the GPT EFI entry make a raw-written USB bootable both
+      ways; `installer/test-iso.sh` takes `BMX_TEST_BOOT=bios`
 
 The installer was validated with the default path: a 2 GiB disk received a 64 MiB
 ESP at LBA 2048 and an ext4 root from LBA 133120 to the end of the disk, and the

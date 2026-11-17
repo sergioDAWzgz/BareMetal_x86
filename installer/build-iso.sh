@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds build/installer/bmx-installer.iso: a UEFI installer ISO carrying the
-# same Linux kernel plus an installer initramfs and the OS payload.
+# Builds build/installer/bmx-installer.iso: a UEFI and BIOS installer ISO
+# carrying the same Linux kernel plus an installer initramfs and the OS payload.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -21,6 +21,11 @@ INSTALLER_PACKAGES="e2fsprogs dosfstools util-linux cfdisk dialog kbd-bkeymaps n
 SRC="$LINUX_CACHE/linux-$LINUX_VERSION"
 OBJ="$LINUX_CACHE/build-installer-$LINUX_VERSION"
 XORRISO=${XORRISO:-xorriso}
+# isolinux gives the BIOS path the same kernel as the UEFI El Torito entry; the
+# MBR template makes the ISO boot from a USB stick as a hard disk too.
+ISOLINUX=${ISOLINUX:-/usr/lib/ISOLINUX/isolinux.bin}
+ISOLINUX_LDLINUX=${ISOLINUX_LDLINUX:-/usr/lib/syslinux/modules/bios/ldlinux.c32}
+ISOLINUX_MBR=${ISOLINUX_MBR:-/usr/lib/ISOLINUX/isohdpfx.bin}
 
 step() { echo; echo "==> $*"; }
 
@@ -42,6 +47,13 @@ if ! command -v "$XORRISO" >/dev/null 2>&1; then
   echo "       apt-get install xorriso" >&2
   exit 1
 fi
+for f in "$ISOLINUX" "$ISOLINUX_LDLINUX" "$ISOLINUX_MBR"; do
+  if [ ! -f "$f" ]; then
+    echo "error: $f is missing, the ISO needs the BIOS boot loader" >&2
+    echo "       apt-get install isolinux syslinux-common" >&2
+    exit 1
+  fi
+done
 mkdir -p "$INSTALLER_CACHE" "$INSTALLER_OUT" "$INSTALLER_ROOT"
 
 step "build the installer rootfs"
@@ -137,8 +149,30 @@ mformat -i "$EFI_IMG" -F ::
 mmd -i "$EFI_IMG" ::/EFI ::/EFI/BOOT
 mcopy -i "$EFI_IMG" "$INSTALLER_CACHE/installer-bzImage" ::/EFI/BOOT/BOOTX64.EFI
 cp "$EFI_IMG" "$ISO_DIR/efi.img"
+
+# The BIOS path loads the same bzImage with isolinux; the kernel carries the
+# installer initramfs and its command line, so the config only has to boot it.
+mkdir -p "$ISO_DIR/isolinux" "$ISO_DIR/installer"
+cp "$ISOLINUX" "$ISO_DIR/isolinux/isolinux.bin"
+cp "$ISOLINUX_LDLINUX" "$ISO_DIR/isolinux/ldlinux.c32"
+cp "$INSTALLER_CACHE/installer-bzImage" "$ISO_DIR/installer/vmlinuz"
+cat > "$ISO_DIR/isolinux/isolinux.cfg" <<'EOF'
+DEFAULT install
+PROMPT 0
+TIMEOUT 10
+LABEL install
+  LINUX /installer/vmlinuz
+  APPEND console=tty0 console=ttyS0 rdinit=/init
+EOF
+
+# BIOS first, then the EFI entry as the alternate El Torito boot. The isohybrid
+# MBR is what lets a raw-written USB stick boot from BIOS; the GPT entry does
+# the same for UEFI.
 "$XORRISO" -as mkisofs -iso-level 3 -J -R -V BMXINSTALL \
-  -e efi.img -no-emul-boot -eltorito-platform efi \
+  -b isolinux/isolinux.bin -c isolinux/boot.cat \
+  -no-emul-boot -boot-load-size 4 -boot-info-table \
+  -isohybrid-mbr "$ISOLINUX_MBR" \
+  -eltorito-alt-boot -e efi.img -no-emul-boot -eltorito-platform efi \
   -isohybrid-gpt-basdat \
   -o "$INSTALLER_OUT/bmx-installer.iso" "$ISO_DIR"
 ls -lh "$INSTALLER_OUT/bmx-installer.iso"

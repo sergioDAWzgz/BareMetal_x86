@@ -45,6 +45,9 @@ work-unit commits. Gate: `./test.sh` plus an install-and-boot QEMU check.
 - S13: the default-install countdown draws the same shrinking bar as the reboot
   screen, with the remaining seconds centred on it, and any key still opens the
   menu.
+- S14: the same ISO boots through BIOS as well as UEFI; isolinux loads the same
+  installer kernel, and a raw-written USB stick is bootable from both firmware
+  families (isohybrid MBR plus the GPT EFI entry).
 
 ## Tasks
 
@@ -62,6 +65,7 @@ work-unit commits. Gate: `./test.sh` plus an install-and-boot QEMU check.
 - T9 install progress screen - inline - done (this commit)
 - T10 automatic reboot countdown after install - inline - done (this commit)
 - T11 countdown bar in the default-install screen - inline - done (this commit)
+- T12 BIOS boot path for the installer ISO - inline - done (this commit)
 
 ## Log
 
@@ -247,3 +251,20 @@ default install (the install log shows `default install on /dev/sda`). The
 `reboot` command and Ctrl+Alt+Delete both leave a cleared tty1 with only
 "Reiniciando el sistema..." while COM1 logs `The system is going down NOW!`; the
 gate is 3 PASS and the installer test boots the result.
+
+L16: "Perfecto. Aplica la siguiente mejora planeada."
+
+The next unchecked roadmap item was the BIOS boot path for the installer ISO.
+`build-iso.sh` now lays an `isolinux/` directory into the ISO tree (isolinux.bin,
+ldlinux.c32 and a config that loads the same installer bzImage as
+`/installer/vmlinuz`), adds the BIOS El Torito entry with `-isohybrid-mbr` and
+keeps the EFI entry as the alternate boot with `-isohybrid-gpt-basdat`. The host
+needs `isolinux` and `syslinux-common` next to `xorriso`. `installer/test-iso.sh`
+gained `BMX_TEST_BOOT=bios`, and the USB media now carries `bootindex=1` so
+SeaBIOS actually tries it; `BMX_TEST_MEDIA=fat` stays UEFI-only because that
+stick has no isolinux tree.
+
+Verified: `BMX_TEST_BOOT=bios` installs and boots the installed disk through
+SeaBIOS from the ISO as a CD and as a raw USB stick (the ISO reports `(dos)`
+because of the hybrid MBR, and the init mounts it as iso9660); the default UEFI
+run still passes.

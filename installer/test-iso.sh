@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Installs into a blank QEMU disk with the default one-button path and then boots
-# the installed disk through OVMF. Not part of ./test.sh; run it after building
-# the ISO with installer/build-iso.sh. BMX_TEST_MEDIA=usb boots the ISO as a USB
-# stick instead of a CD-ROM; BMX_TEST_MEDIA=fat reproduces a Rufus ISO-mode stick
-# (a FAT32 volume with the extracted payload and the BMXINSTALL label).
+# the installed disk through the same firmware. Not part of ./test.sh; run it
+# after building the ISO with installer/build-iso.sh. BMX_TEST_MEDIA=usb boots
+# the ISO as a USB stick instead of a CD-ROM; BMX_TEST_MEDIA=fat reproduces a
+# Rufus ISO-mode stick (a FAT32 volume with the extracted payload and the
+# BMXINSTALL label). BMX_TEST_BOOT=bios uses SeaBIOS instead of OVMF.
 # BMX_TEST_KEEP=1 keeps the target disk, so a second run installs over the
 # previous installation instead of starting from a blank disk.
 set -euo pipefail
@@ -16,7 +17,27 @@ BOOT_LOG=build/installer/installed.log
 OVMF_CODE=${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}
 OVMF_VARS=${OVMF_VARS:-/usr/share/OVMF/OVMF_VARS_4M.fd}
 MEDIA=${BMX_TEST_MEDIA:-cd}
+BOOT=${BMX_TEST_BOOT:-uefi}
 KEEP=${BMX_TEST_KEEP:-0}
+
+case "$BOOT" in
+uefi | bios) ;;
+*)
+  echo "FAIL: BMX_TEST_BOOT must be uefi or bios" >&2
+  exit 1
+  ;;
+esac
+if [ "$BOOT" = uefi ]; then
+  [ -f "$OVMF_CODE" ] || { echo "FAIL: $OVMF_CODE is missing" >&2; exit 1; }
+  [ -f "$OVMF_VARS" ] || { echo "FAIL: $OVMF_VARS is missing" >&2; exit 1; }
+  cp "$OVMF_VARS" build/installer/OVMF_VARS.fd
+  FIRMWARE=(
+    -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE"
+    -drive if=pflash,format=raw,file=build/installer/OVMF_VARS.fd
+  )
+else
+  FIRMWARE=()
+fi
 
 [ -f "$ISO" ] || { echo "FAIL: $ISO is missing, run installer/build-iso.sh" >&2; exit 1; }
 mkdir -p "$(dirname "$TARGET")"
@@ -27,7 +48,7 @@ else
   truncate -s 2G "$TARGET"
 fi
 rm -f "$INSTALL_LOG" "$BOOT_LOG"
-cp "$OVMF_VARS" build/installer/OVMF_VARS.fd
+echo "boot: $BOOT (media: $MEDIA)"
 
 case "$MEDIA" in
 cd | usb | fat) ;;
@@ -36,6 +57,10 @@ cd | usb | fat) ;;
   exit 1
   ;;
 esac
+if [ "$BOOT" = bios ] && [ "$MEDIA" = fat ]; then
+  echo "FAIL: the fat media mode is the UEFI extraction; use BMX_TEST_MEDIA=usb for a BIOS stick" >&2
+  exit 1
+fi
 
 if [ "$MEDIA" = fat ]; then
   USB_IMG=$HOME/.cache/bmx/installer-test/usb.img
@@ -46,18 +71,17 @@ if [ "$MEDIA" = fat ]; then
   mcopy -i build/installer/efi.img ::/EFI/BOOT/BOOTX64.EFI /tmp/bmx-bootx64.efi
   mcopy -i "$USB_IMG" /tmp/bmx-bootx64.efi ::/EFI/BOOT/BOOTX64.EFI
   mcopy -s -i "$USB_IMG" build/installer/payload/* ::/payload
-  INSTALL_MEDIA=(-device qemu-xhci -device usb-storage,drive=usbstick
+  INSTALL_MEDIA=(-device qemu-xhci -device usb-storage,drive=usbstick,bootindex=1
                  -drive if=none,id=usbstick,file="$USB_IMG",format=raw)
 elif [ "$MEDIA" = usb ]; then
-  INSTALL_MEDIA=(-device qemu-xhci -device usb-storage,drive=usbstick
+  INSTALL_MEDIA=(-device qemu-xhci -device usb-storage,drive=usbstick,bootindex=1
                  -drive if=none,id=usbstick,file="$ISO",format=raw)
 else
   INSTALL_MEDIA=(-cdrom "$ISO")
 fi
 
 qemu-system-x86_64 -machine q35 -cpu qemu64 -m 1024 \
-  -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
-  -drive if=pflash,format=raw,file=build/installer/OVMF_VARS.fd \
+  "${FIRMWARE[@]}" \
   -drive file="$TARGET",format=raw,if=none,id=target \
   -device ide-hd,drive=target \
   "${INSTALL_MEDIA[@]}" -display none -serial "file:$INSTALL_LOG" -no-reboot \
@@ -102,10 +126,11 @@ print("layout ok: ESP start=2048 size=131072, root start=%d size=%d" %
       (root[2], root[3]))
 EOF
 
-cp "$OVMF_VARS" build/installer/OVMF_VARS.fd
+if [ "$BOOT" = uefi ]; then
+  cp "$OVMF_VARS" build/installer/OVMF_VARS.fd
+fi
 qemu-system-x86_64 -machine q35 -cpu qemu64 -m 1024 \
-  -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
-  -drive if=pflash,format=raw,file=build/installer/OVMF_VARS.fd \
+  "${FIRMWARE[@]}" \
   -drive file="$TARGET",format=raw,if=none,id=target \
   -device ide-hd,drive=target \
   -nic user,model=e1000 \

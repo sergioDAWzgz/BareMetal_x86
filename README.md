@@ -387,19 +387,20 @@ PHY patch is what the board's RTL8111H asks for.
 
 ## Installer ISO
 
-`installer/build-iso.sh` builds `build/installer/bmx-installer.iso` (about 214 MiB),
-a UEFI El Torito image that carries an installer kernel, an installer initramfs
-and the OS payload. Build the disk image first and have `xorriso` on the host:
+`installer/build-iso.sh` builds `build/installer/bmx-installer.iso` (about 241 MiB),
+a UEFI and BIOS El Torito image that carries an installer kernel, an installer
+initramfs and the OS payload. Build the disk image first and have `xorriso` and
+the isolinux files on the host:
 
 ```sh
 ./build.sh
-sudo apt-get install xorriso
+sudo apt-get install xorriso isolinux syslinux-common
 ./installer/build-iso.sh
 ```
 
-Write the ISO to a USB stick or attach it as a CD. The board boots it through
-UEFI; the installer itself has no BIOS path (the installed system still boots
-both paths).
+Write the ISO to a USB stick or attach it as a CD. UEFI boots the EFI El Torito
+entry; BIOS boots isolinux, which loads the same kernel. A raw-written USB stick
+carries both an isohybrid BIOS MBR and the GPT EFI entry.
 
 The first screen is drawn in the same visual style as the rest of the TUI: a
 blue screen with a white panel and a blue title, the theme `dialog` uses, but
@@ -427,11 +428,12 @@ immediately.
 
 The chosen keymap is stored as `/etc/keymap` in the installed rootfs and loaded
 by `bmx-keymap` at boot; the default is `es`. `installer/test-iso.sh` installs
-into a blank 2 GiB QEMU disk and boots the result through OVMF; it needs `qemu`,
-`ovmf`, `mtools` and `python3`, and `BMX_TEST_MEDIA=usb` or `BMX_TEST_MEDIA=fat`
-boots the ISO as a raw USB image or as a Rufus-style extracted FAT stick instead
-of a CD-ROM. `BMX_TEST_KEEP=1` reuses the target disk, so running the script a
-second time exercises the default install over an existing installation.
+into a blank 2 GiB QEMU disk and boots the result through the same firmware; it
+needs `qemu`, `ovmf`, `mtools` and `python3`. `BMX_TEST_BOOT=bios` uses SeaBIOS
+instead of OVMF, `BMX_TEST_MEDIA=usb` boots the ISO as a raw USB stick, and
+`BMX_TEST_MEDIA=fat` (UEFI only) reproduces a Rufus ISO-mode stick.
+`BMX_TEST_KEEP=1` reuses the target disk, so running the script a second time
+exercises the default install over an existing installation.
 
 The installer is destructive: it rewrites the target disk's MBR and both
 filesystems.
