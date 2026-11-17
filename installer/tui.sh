@@ -190,8 +190,10 @@ do_install() {
     # The engine's own output is the COM1 log; tty0 shows only the progress
     # screen. die() reopens tty0 for its error dialog.
     install_system "$DISK" "$LAYOUT" > /dev/console 2>&1
-    dialog --title "Listo" --msgbox \
-        "Instalación completada.\nRetira el medio de instalación y reinicia." 10 60
+    # dialog's pause widget shows the remaining seconds and one OK button: the
+    # box reboots on its own after 10 s, or immediately when OK is pressed.
+    dialog --title "Instalación completada" --no-cancel --pause \
+        "Retira el medio de instalación.\n\nEl equipo se reiniciará solo." 11 66 10
     sync
     reboot -f
 }
@@ -208,8 +210,10 @@ default_install() {
     # The engine's own output is the COM1 log; tty0 shows only the progress
     # screen. die() reopens tty0 for its error dialog.
     install_system "$DISK" "$LAYOUT" > /dev/console 2>&1
-    dialog --title "Listo" --msgbox \
-        "Instalación completada.\nRetira el medio de instalación y reinicia." 10 60
+    # dialog's pause widget shows the remaining seconds and one OK button: the
+    # box reboots on its own after 10 s, or immediately when OK is pressed.
+    dialog --title "Instalación completada" --no-cancel --pause \
+        "Retira el medio de instalación.\n\nEl equipo se reiniciará solo." 11 66 10
     sync
     reboot -f
 }

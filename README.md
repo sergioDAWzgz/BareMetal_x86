@@ -418,7 +418,9 @@ writing it.
 While it installs, the local screen shows one line with the last step (the full
 log stays on COM1) above a dialog-style bar. The bar follows the gzip read
 offset of the payload archive, so the long rootfs extraction is the part that
-moves; the other steps are milestones.
+moves; the other steps are milestones. When the install finishes, a pause box
+counts down from 10 seconds and reboots on its own; its OK button reboots
+immediately.
 
 The chosen keymap is stored as `/etc/keymap` in the installed rootfs and loaded
 by `bmx-keymap` at boot; the default is `es`. `installer/test-iso.sh` installs

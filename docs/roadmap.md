@@ -274,6 +274,8 @@ not only sampled by hand.
 - [x] an install screen with one status line (the last step) and a dialog-style
       progress bar; the bar follows gzip's read offset during the rootfs
       extraction, and the full log stays on COM1
+- [x] after a completed install, a pause box counts down from 10 seconds and
+      reboots on its own; its OK button reboots immediately
 - [x] manual MBR layouts: up to four primaries, one FAT32 ESP and one ext4 root,
       the first partition after sector 144; the installer generates the disk
       signature and patches `root=PARTUUID=<disk>-<part>` in the kernel

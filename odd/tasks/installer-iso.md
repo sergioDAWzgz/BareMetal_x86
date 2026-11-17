@@ -40,6 +40,8 @@ work-unit commits. Gate: `./test.sh` plus an install-and-boot QEMU check.
 - S11: while it installs, tty0 shows one status line with the last step above a
   dialog-style progress bar; the bar follows gzip's read offset during the rootfs
   extraction, and the full engine log stays on COM1.
+- S12: when the install completes, a pause box counts down from 10 seconds and
+  keeps one OK button; the machine reboots at zero or when OK is pressed.
 
 ## Tasks
 
@@ -55,6 +57,7 @@ work-unit commits. Gate: `./test.sh` plus an install-and-boot QEMU check.
 - T7 exercise the manual cfdisk path and the USB boot on the board - pending
 - T8 dialog-theme countdown and unconditional default overwrite - inline - done (this commit)
 - T9 install progress screen - inline - done (this commit)
+- T10 automatic reboot countdown after install - inline - done (this commit)
 
 ## Log
 
@@ -210,3 +213,14 @@ the engine writes its output to COM1. `installer/test-iso.sh` passes from blank
 and with BMX_TEST_KEEP=1. On the installed disk, setting the clock to 2000 makes
 wget fail, `bmx-clock` syncs NTP and wget/apk work again; setting the clock to
 `/etc/bmx-build-date` with `date -s` also makes wget succeed.
+
+L14: "Perfecto. Un último cambio al instalador: me gustaría que el reinicio tras
+instalar fuera automático, con un contador de 10 segundos además del botón"
+
+The success `--msgbox` is now `dialog --no-cancel --pause` with 10 seconds: the
+pause widget draws the remaining seconds in its own row and keeps one OK button,
+so the box reboots on its own at zero or immediately when OK is pressed. Both
+install flows (default and menu) share it. A QEMU screendump shows the box with
+"Instalación completada", the instruction, the count at 8 and the OK button; with
+no input, QEMU exited 10 s after the box appeared, which is the automatic reboot.
+The fresh and `BMX_TEST_KEEP=1` installs still pass and the gate is 3 PASS.
