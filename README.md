@@ -148,14 +148,16 @@ board. The rootfs carries the Alpine `ca-certificates` bundle at
 battery leaves the clock at 2000 and every TLS handshake then fails as "not yet
 valid", so `bmx-clock` asks NTP once DHCP has a lease, writes the time back to
 the RTC and, if NTP is unreachable, falls back to `/etc/bmx-build-date` until the
-clock is plausible. `reboot` and `poweroff` are small wrappers in
-`/usr/local/sbin`: they raise the kernel console log level and let OpenRC's
-shutdown run on tty1, so the monitor shows the stopping services and the kernel
-shutdown messages with their `[ seconds ]` timestamps instead of a silent
-screen. COM1 keeps the boot log and a plain copy of the banner. COM1 remains the
-debug channel at 115200 8N1, no flow control. A USB-serial adapter and the board
-are both DTE, so the cable has to be **null-modem**: TX and RX cross. A
-straight-through cable shows the boot log and never delivers input.
+clock is plausible. `reboot`, `poweroff` and `shutdown` are small wrappers in
+`/usr/local/sbin` (Ctrl+Alt+Del runs the same reboot wrapper): they clear the
+local screen the moment the request is made, raise the kernel console log level
+and let OpenRC's shutdown run on tty1, so the monitor shows the stopping services
+and the kernel shutdown messages with their `[ seconds ]` timestamps on an empty
+console instead of over the old session. COM1 keeps the boot log and a plain copy
+of the banner. COM1 remains the debug channel at 115200 8N1, no flow control. A
+USB-serial adapter and the board are both DTE, so the cable has to be
+**null-modem**: TX and RX cross. A straight-through cable shows the boot log and
+never delivers input.
 
 ### How ACPI is found
 
@@ -402,18 +404,19 @@ both paths).
 The first screen is drawn in the same visual style as the rest of the TUI: a
 blue screen with a white panel and a blue title, the theme `dialog` uses, but
 painted directly on tty0 because `dialog` draws on the alternate screen and
-would repaint everything on exit. Only the countdown line is rewritten, so the
-number changes in place without a full-screen flicker. If no key is pressed, the
-default install runs: first internal disk, Spanish console keymap, one MBR with a
-64 MiB FAT32 ESP and an ext4 root that fills the rest of the disk, and the same
-boot chain as the prebuilt image. The default path asks no questions even when
-the target already holds an installation: it wipes the old signatures, rewrites
-the table and reformats both filesystems. Any key opens the menu, where the
-keyboard, the target disk and `cfdisk` manual partitioning can be chosen. Manual
-mode requires one FAT32 partition (type `c`) and one ext4 root (type `83`), with
-the first partition starting after sector 144; the installer generates the disk
-signature and patches `root=PARTUUID=<disk>-<part>` into the kernel before
-writing it.
+would repaint everything on exit. It carries the same shrinking countdown bar,
+with the number centred on it, that the reboot screen uses; only the bar row is
+rewritten, so the number changes in place without a full-screen flicker. Any key
+still cancels it and opens the menu. If no key is pressed, the default install
+runs: first internal disk, Spanish console keymap, one MBR with a 64 MiB FAT32
+ESP and an ext4 root that fills the rest of the disk, and the same boot chain as
+the prebuilt image. The default path asks no questions even when the target
+already holds an installation: it wipes the old signatures, rewrites the table
+and reformats both filesystems. Any key opens the menu, where the keyboard, the
+target disk and `cfdisk` manual partitioning can be chosen. Manual mode requires
+one FAT32 partition (type `c`) and one ext4 root (type `83`), with the first
+partition starting after sector 144; the installer generates the disk signature
+and patches `root=PARTUUID=<disk>-<part>` into the kernel before writing it.
 
 While it installs, the local screen shows one line with the last step (the full
 log stays on COM1) above a dialog-style bar. The bar follows the gzip read

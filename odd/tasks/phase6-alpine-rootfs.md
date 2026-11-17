@@ -41,6 +41,9 @@ q35 and UEFI paths.
   writes the time back to the RTC, and falls back to `/etc/bmx-build-date` while
   the clock is implausible, so TLS can validate certificates on a board with a
   dead RTC battery.
+- S15: `reboot`, `poweroff` and `shutdown` clear the local screen as soon as the
+  request is made, and Ctrl+Alt+Del runs the same reboot wrapper before OpenRC's
+  shutdown log and the kernel messages fill the console.
 
 ## Tasks
 
@@ -54,6 +57,7 @@ q35 and UEFI paths.
 - T8 second NIC and firmware - inline - done (this commit)
 - T9 Debian-sized font, TLS bundle, visible shutdown - inline - done (this commit)
 - T10 NTP clock and build-date fallback - inline - done (this commit)
+- T11 clear the screen at the start of shutdown - inline - done (this commit)
 
 ## Log
 
@@ -263,3 +267,17 @@ Verified on the installed disk in QEMU: with the clock at 2000, `wget` fails wit
 after `bmx-clock` (NTP reachable through slirp) the clock reads 2026 and both
 clients succeed, and setting the clock to `/etc/bmx-build-date` with `date -s`
 makes wget succeed as well, which is the fallback branch.
+
+L19: "cuando reinicie el equipo, debería limpiarse la pantalla nada más pulsarse
+Ctrl+Alt+Supr, o escribir el comando correspondiente"
+
+`/usr/local/sbin/reboot`, `poweroff` and a new `shutdown` wrapper set the console
+log level, clear tty1 (`ESC[H ESC[2J ESC[3J`) and then print their one-line
+message before `exec`ing the BusyBox applet. The inittab Ctrl+Alt+Del action now
+runs `/usr/local/sbin/reboot` instead of `/sbin/reboot`, so the key chord takes the
+cleared-screen path too. `bmx-check` reports `bmx: shutdown ready` as well.
+
+Verified with QEMU screendumps on the installed disk: before the request the
+console showed the banner and the prompt; 0.5 s after `reboot` on the serial
+shell and after `sendkey ctrl-alt-delete`, tty1 held only "Reiniciando el
+sistema..." and COM1 logged "The system is going down NOW!".

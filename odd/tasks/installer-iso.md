@@ -42,6 +42,9 @@ work-unit commits. Gate: `./test.sh` plus an install-and-boot QEMU check.
   extraction, and the full engine log stays on COM1.
 - S12: when the install completes, a pause box counts down from 10 seconds and
   keeps one OK button; the machine reboots at zero or when OK is pressed.
+- S13: the default-install countdown draws the same shrinking bar as the reboot
+  screen, with the remaining seconds centred on it, and any key still opens the
+  menu.
 
 ## Tasks
 
@@ -58,6 +61,7 @@ work-unit commits. Gate: `./test.sh` plus an install-and-boot QEMU check.
 - T8 dialog-theme countdown and unconditional default overwrite - inline - done (this commit)
 - T9 install progress screen - inline - done (this commit)
 - T10 automatic reboot countdown after install - inline - done (this commit)
+- T11 countdown bar in the default-install screen - inline - done (this commit)
 
 ## Log
 
@@ -224,3 +228,22 @@ install flows (default and menu) share it. A QEMU screendump shows the box with
 "Instalación completada", the instruction, the count at 8 and the OK button; with
 no input, QEMU exited 10 s after the box appeared, which is the automatic reboot.
 The fresh and `BMX_TEST_KEEP=1` installs still pass and the gate is 3 PASS.
+
+L15: "Ahora, otros pequeños cambios: cuando reinicie el equipo, debería limpiarse
+la pantalla nada más pulsarse Ctrl+Alt+Supr, o escribir el comando correspondiente.
+La cuenta atrás de la instalación por defecto debería seguir el mismo estilo que
+la cuentra atrás del reinicio, con la barra decreciente."
+
+The default-install countdown keeps its dialog-style panel but replaces the
+number line with `countdown_bar`: a blue segment that shrinks with the remaining
+seconds and carries the number centred on it, the same visual as the pause box
+used for the reboot. It is still repainted once and only the bar row changes, and
+any key still opens the menu (`dialog --pause` alone only accepts Enter, Space or
+Esc, which would have dropped the "cualquier tecla" behaviour).
+
+Verified with QEMU screendumps: the boot countdown shows the bar at 4 of 10 with
+the number centred, any key opens the menu, and letting it expire starts the
+default install (the install log shows `default install on /dev/sda`). The
+`reboot` command and Ctrl+Alt+Delete both leave a cleared tty1 with only
+"Reiniciando el sistema..." while COM1 logs `The system is going down NOW!`; the
+gate is 3 PASS and the installer test boots the result.

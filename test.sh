@@ -157,6 +157,7 @@ common_assertions() {
   grep -q 'bmx: bmx-shutdown ready'             "$log" || fail "$label: bmx-shutdown is missing or does not parse"
   grep -q 'bmx: reboot ready'                   "$log" || fail "$label: the reboot wrapper is missing or does not parse"
   grep -q 'bmx: poweroff ready'                 "$log" || fail "$label: the poweroff wrapper is missing or does not parse"
+  grep -q 'bmx: shutdown ready'                 "$log" || fail "$label: the shutdown wrapper is missing or does not parse"
   grep -q 'kbd: controller ready'               "$log" || fail "$label: 8042 controller was not initialised"
   grep -q 'Phase 3 complete'                    "$log" || fail "$label: phase 3 did not complete"
   grep -q 'mbr: partition table self-test passed' "$log" \

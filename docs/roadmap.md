@@ -211,9 +211,11 @@ open until the board itself says which one it uses.
 - [x] give the kernel a console without i915: `efifb` paints the firmware's GOP
       framebuffer (the installer ISO), and `bochs-drm` gives QEMU's stdvga a
       screen, so the console and the shutdown log are visible in the gate
-- [x] show the shutdown log on the monitor: `reboot` and `poweroff` raise the
-      kernel console log level and run OpenRC's shutdown on tty1, so the stopping
-      services and the kernel messages with their `[ seconds ]` stay on screen
+- [x] show the shutdown log on the monitor: `reboot`, `poweroff` and `shutdown`
+      clear the local screen when the request is made (Ctrl+Alt+Del runs the same
+      wrapper), raise the kernel console log level and run OpenRC's shutdown on
+      tty1, so the stopping services and the kernel messages with their
+      `[ seconds ]` stay on screen
 - [x] keep TLS working on a board with a dead RTC: `bmx-clock` syncs over NTP once
       DHCP has a lease, writes the time to the RTC, and falls back to the image
       build date while the clock is still implausible
@@ -267,10 +269,10 @@ not only sampled by hand.
 - [x] an installer TUI on the local console: keyboard layout (default `es`),
       destination disk, default whole-disk layout, manual `cfdisk` partitioning
 - [x] a one-button default path behind a 10 second countdown drawn in dialog's
-      own theme (blue screen, white panel, blue title) with only the number line
-      rewritten in place; the default asks nothing and overwrites a disk that
-      already holds an installation; the ext4 root takes all the space left
-      after the 64 MiB ESP
+      own theme (blue screen, white panel, blue title) with the same shrinking
+      bar as the reboot screen and only the bar row rewritten in place; the
+      default asks nothing and overwrites a disk that already holds an
+      installation; the ext4 root takes all the space left after the 64 MiB ESP
 - [x] an install screen with one status line (the last step) and a dialog-style
       progress bar; the bar follows gzip's read offset during the rootfs
       extraction, and the full log stays on COM1

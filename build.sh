@@ -473,7 +473,7 @@ cat > "$ALPINE_ROOT/etc/inittab" <<'EOF'
 ::once:/usr/local/bin/bmx-mouse
 tty1::respawn:/usr/local/bin/bmx-shell
 ttyS0::respawn:/usr/local/bin/bmx-shell
-::ctrlaltdel:/sbin/reboot
+::ctrlaltdel:/usr/local/sbin/reboot
 ::shutdown:/usr/local/bin/bmx-shutdown
 EOF
 
@@ -579,7 +579,8 @@ for script in /usr/local/bin/bmx-shell /usr/local/bin/bmx-keymap \
               /usr/local/bin/bmx-banner /usr/local/bin/bmx-shutdown \
               /usr/local/bin/bmx-net /usr/local/bin/bmx-clock \
               /usr/local/bin/bmx-decode /usr/local/bin/bmx-play \
-              /usr/local/sbin/reboot /usr/local/sbin/poweroff; do
+              /usr/local/sbin/reboot /usr/local/sbin/poweroff \
+              /usr/local/sbin/shutdown; do
     name=${script##*/}
     if [ -x "$script" ] && sh -n "$script"; then
         echo "bmx: $name ready"
@@ -675,18 +676,31 @@ EOF
 mkdir -p "$ALPINE_ROOT/usr/local/sbin"
 cat > "$ALPINE_ROOT/usr/local/sbin/reboot" <<'EOF'
 #!/bin/sh
-# Show the kernel shutdown log with timestamps on the local screen.
+# Clear the local screen as soon as the reboot is requested, then let the
+# shutdown log (kernel messages included) fill it.
 dmesg -n 8 2>/dev/null || true
+printf '\033[H\033[2J\033[3J' > /dev/tty1
 printf '\nReiniciando el sistema...\n' > /dev/tty1
 exec /sbin/reboot "$@"
 EOF
 
 cat > "$ALPINE_ROOT/usr/local/sbin/poweroff" <<'EOF'
 #!/bin/sh
-# Show the kernel shutdown log with timestamps on the local screen.
+# Clear the local screen as soon as the poweroff is requested, then let the
+# shutdown log (kernel messages included) fill it.
 dmesg -n 8 2>/dev/null || true
+printf '\033[H\033[2J\033[3J' > /dev/tty1
 printf '\nApagando el sistema...\n' > /dev/tty1
 exec /sbin/poweroff "$@"
+EOF
+
+cat > "$ALPINE_ROOT/usr/local/sbin/shutdown" <<'EOF'
+#!/bin/sh
+# shutdown -r/-h is the other way to ask for a clean stop; clear the screen
+# before /sbin/shutdown signals init so the log starts on an empty console.
+dmesg -n 8 2>/dev/null || true
+printf '\033[H\033[2J\033[3J' > /dev/tty1
+exec /sbin/shutdown "$@"
 EOF
 
 cat > "$ALPINE_ROOT/usr/local/bin/bmx-net" <<'EOF'
@@ -820,7 +834,8 @@ chmod +x "$ALPINE_ROOT/usr/local/bin/bmx-check" \
          "$ALPINE_ROOT/usr/local/bin/bmx-decode" \
          "$ALPINE_ROOT/usr/local/bin/bmx-play" \
          "$ALPINE_ROOT/usr/local/sbin/reboot" \
-         "$ALPINE_ROOT/usr/local/sbin/poweroff"
+         "$ALPINE_ROOT/usr/local/sbin/poweroff" \
+         "$ALPINE_ROOT/usr/local/sbin/shutdown"
 
 # busybox-suid installs bbsuid execute-only, and mke2fs -d runs unprivileged, so
 # it cannot read the file to copy it. The image drops into a root shell and never

@@ -134,6 +134,28 @@ panel_line() {
         > /dev/tty0
 }
 
+# The countdown bar in the style of dialog's pause box: a blue segment that
+# shrinks with the remaining seconds, number centred on it.
+countdown_bar() {
+    remaining=$1
+    filled=$((remaining * PANEL_INNER / 10))
+    [ "$filled" -gt "$PANEL_INNER" ] && filled=$PANEL_INNER
+    empty=$((PANEL_INNER - filled))
+    bar_row=$((PANEL_TOP + 2))
+    bar_left=$((PANEL_LEFT + 1))
+    printf '\033[%d;%dH\033[44;37m%*s\033[47;30m%*s' "$bar_row" "$bar_left" \
+        "$filled" '' "$empty" '' > /dev/tty0
+    if [ "$remaining" -lt 10 ]; then digits=" $remaining"; else digits=$remaining; fi
+    offset=$(((PANEL_INNER - ${#digits}) / 2))
+    if [ "$offset" -lt "$filled" ]; then
+        printf '\033[%d;%dH\033[44;37m%s' "$bar_row" $((bar_left + offset)) \
+            "$digits" > /dev/tty0
+    else
+        printf '\033[%d;%dH\033[47;30m%s' "$bar_row" $((bar_left + offset)) \
+            "$digits" > /dev/tty0
+    fi
+}
+
 # --- Progress screen --------------------------------------------------------
 # The console output of the install stays on COM1; tty0 shows one status line
 # with the last step (like Debian's installer) and a bar that moves while the
@@ -230,6 +252,7 @@ countdown_aborted() {
     top=$(((rows - height) / 2 + 1))
     left=$(((cols - width) / 2 + 1))
     panel_draw "$top" "$left" "$width" "$height" " BareMetal_x86 "
+    panel_line 1 "   Instalación por defecto"
     panel_line 3 "   Se usará el primer disco interno, teclado español"
     panel_line 4 "   y todo el disco."
     panel_line 6 "   Pulsa cualquier tecla para configurar manualmente."
@@ -237,8 +260,7 @@ countdown_aborted() {
     stty -icanon min 1 time 0 < /dev/tty0 2>/dev/null || true
     i=10
     while [ "$i" -gt 0 ]; do
-        if [ "$i" -eq 1 ]; then unit=segundo; else unit=segundos; fi
-        panel_line 1 "   Instalación por defecto en $i $unit."
+        countdown_bar "$i"
         if timeout 1 dd bs=1 count=1 < /dev/tty0 >/dev/null 2>&1; then
             pressed=1
             break
