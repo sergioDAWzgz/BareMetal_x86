@@ -214,6 +214,9 @@ open until the board itself says which one it uses.
 - [x] show the shutdown log on the monitor: `reboot` and `poweroff` raise the
       kernel console log level and run OpenRC's shutdown on tty1, so the stopping
       services and the kernel messages with their `[ seconds ]` stay on screen
+- [x] keep TLS working on a board with a dead RTC: `bmx-clock` syncs over NTP once
+      DHCP has a lease, writes the time to the RTC, and falls back to the image
+      build date while the clock is still implausible
 - [ ] re-check the 1080p60 display path: `bmx-play` now uses `--profile=fast` and
       refuses the software fallback; the first run dropped 177 of 600 frames, so
       the display/render path is the limit, not the decode
@@ -268,6 +271,9 @@ not only sampled by hand.
       rewritten in place; the default asks nothing and overwrites a disk that
       already holds an installation; the ext4 root takes all the space left
       after the 64 MiB ESP
+- [x] an install screen with one status line (the last step) and a dialog-style
+      progress bar; the bar follows gzip's read offset during the rootfs
+      extraction, and the full log stays on COM1
 - [x] manual MBR layouts: up to four primaries, one FAT32 ESP and one ext4 root,
       the first partition after sector 144; the installer generates the disk
       signature and patches `root=PARTUUID=<disk>-<part>` in the kernel

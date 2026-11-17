@@ -37,6 +37,9 @@ work-unit commits. Gate: `./test.sh` plus an install-and-boot QEMU check.
 - S10: the default action asks no further questions when the target disk already
   holds data: the old signatures are wiped, the MBR is rewritten and both
   filesystems are formatted with the tools' force flags.
+- S11: while it installs, tty0 shows one status line with the last step above a
+  dialog-style progress bar; the bar follows gzip's read offset during the rootfs
+  extraction, and the full engine log stays on COM1.
 
 ## Tasks
 
@@ -51,6 +54,7 @@ work-unit commits. Gate: `./test.sh` plus an install-and-boot QEMU check.
 - T6 docs - done
 - T7 exercise the manual cfdisk path and the USB boot on the board - pending
 - T8 dialog-theme countdown and unconditional default overwrite - inline - done (this commit)
+- T9 install progress screen - inline - done (this commit)
 
 ## Log
 
@@ -177,3 +181,32 @@ installed on the previous run (`BMX_TEST_KEEP=1`), and both boots reach OpenRC
 and the banner. QEMU screendumps of the ISO show the countdown box in the same
 blue/white/blue-title theme as the dialog menu, with the number changing from 7
 to 5 in place, and the menu opens on any key.
+
+L13: "Dos cosas: me gustaría que la instalación mostrase una barra de progreso,
+en vez de la salida de consola (la salida de consola puede aparecer como un texto
+de una línea mostrando la última línea encima de la barra de progreso, tipo
+Debian). Segundo, ¿qué tamaños de fuente hay disponibles para la consola?
+Tercero, los certificados siguen fallando"
+
+The install screen is now a dialog-style panel: the title "Instalando
+BareMetal_x86", one status line with the last engine step, and a blue `#` bar
+with its percentage, all painted by the same `panel_draw`/`panel_line` helpers the
+countdown uses. The engine reports `progress <pct> <message>`; the extraction
+step pipes `gzip -dc` through a FIFO into `tar` and polls gzip's `rchar` in
+`/proc`, so the bar moves across the 40-85% range while the long step runs. The
+engine log still goes to COM1, and the completion step is 100%.
+
+The TLS failure was reproduced in QEMU: with the clock at 2000, `wget` reports
+"certificate verify failed" and `apk` "TLS: server certificate not trusted";
+with the correct clock both succeed. The board's RTC is the cause, so `bmx-clock`
+runs once after bmx-net, waits for a DHCP lease, runs `ntpd -q` over pools, writes
+the time back with `hwclock -w`, and falls back to `/etc/bmx-build-date` when the
+clock is still before 2025. `/etc/ssl/cert.pem` is now checked at build time too.
+
+Verified: QEMU screendumps of the ISO show the install screen with the title, the
+last step line and the bar moving (41% to 44% during the extraction); the kernel
+info lines no longer paint over it after `dmesg -n 3` in the installer init, and
+the engine writes its output to COM1. `installer/test-iso.sh` passes from blank
+and with BMX_TEST_KEEP=1. On the installed disk, setting the clock to 2000 makes
+wget fail, `bmx-clock` syncs NTP and wget/apk work again; setting the clock to
+`/etc/bmx-build-date` with `date -s` also makes wget succeed.

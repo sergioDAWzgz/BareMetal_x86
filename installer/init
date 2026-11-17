@@ -5,6 +5,10 @@ mount -t proc proc /proc 2>/dev/null
 mount -t sysfs sysfs /sys 2>/dev/null
 mount -t devtmpfs devtmpfs /dev 2>/dev/null
 echo "BMX-INSTALLER: init running" > /dev/console
+# The TUI owns tty0 while it installs; kernel info messages (one per mkfs and
+# mount) would paint over the progress screen. Only errors still reach the
+# console. The install log is userspace on /dev/console and is not affected.
+dmesg -n 3 2>/dev/null || true
 
 # Spanish console by default; the TUI can change it.
 if [ -f /usr/share/bkeymaps/es/es.bmap.gz ]; then

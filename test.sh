@@ -153,6 +153,7 @@ common_assertions() {
   grep -q 'bmx: bmx-console-font ready'         "$log" || fail "$label: bmx-console-font is missing or does not parse"
   grep -q '^Kernel: 6\.12\.'                    "$log" || fail "$label: the boot banner is missing"
   grep -q 'bmx: bmx-net ready'                  "$log" || fail "$label: bmx-net is missing or does not parse"
+  grep -q 'bmx: bmx-clock ready'                "$log" || fail "$label: bmx-clock is missing or does not parse"
   grep -q 'bmx: bmx-shutdown ready'             "$log" || fail "$label: bmx-shutdown is missing or does not parse"
   grep -q 'bmx: reboot ready'                   "$log" || fail "$label: the reboot wrapper is missing or does not parse"
   grep -q 'bmx: poweroff ready'                 "$log" || fail "$label: the poweroff wrapper is missing or does not parse"

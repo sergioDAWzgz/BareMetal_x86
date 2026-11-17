@@ -37,6 +37,10 @@ q35 and UEFI paths.
   `/etc/ssl/certs/ca-certificates.crt`.
 - S13: `reboot` and `poweroff` show OpenRC's shutdown and the kernel shutdown
   messages, with their timestamps, on tty1.
+- S14: the clock is corrected at boot: after DHCP, `bmx-clock` syncs over NTP,
+  writes the time back to the RTC, and falls back to `/etc/bmx-build-date` while
+  the clock is implausible, so TLS can validate certificates on a board with a
+  dead RTC battery.
 
 ## Tasks
 
@@ -49,6 +53,7 @@ q35 and UEFI paths.
 - T7 console home and network - inline - done (00c8ea3)
 - T8 second NIC and firmware - inline - done (this commit)
 - T9 Debian-sized font, TLS bundle, visible shutdown - inline - done (this commit)
+- T10 NTP clock and build-date fallback - inline - done (this commit)
 
 ## Log
 
@@ -238,3 +243,23 @@ and the kernel messages with their `[ seconds ]`. `bmx-check` reports
 `echo '<0>BMX-KERNEL-CONSOLE-TEST' > /dev/kmsg` proved the kernel console paints
 tty1; the shutdown messages appear there until the video driver's shutdown
 handler releases the display, exactly as on a Debian console.
+
+L18: "Tercero, los certificados siguen fallando"
+
+The failure was reproduced in QEMU with the installed disk: `wget` and `apk`
+succeed against dl-cdn.alpinelinux.org with the correct clock, and fail with
+"certificate verify failed" / "TLS: server certificate not trusted" after
+`date -s '2000-01-01'`. A dead RTC battery is the cause, so `bmx-clock` runs once
+after `bmx-net`, waits up to 20 s for a lease, tries `ntpd -q` against two pool
+hosts with a 15 s timeout, writes the time back with `hwclock -w`, and when the
+clock is still before 2025 sets it from `/etc/bmx-build-date` (written by
+build.sh). It reports `bmx: clock synced`, `clock plausible`, `clock set to build
+date` or `clock not set (TLS may fail)` on COM1. `build.sh` also checks
+`/etc/ssl/cert.pem` (the OpenSSL default path, a symlink in the Alpine bundle)
+and `/etc/profile.d/bmx-tls.sh` exports `SSL_CERT_FILE` and `SSL_CERT_DIR`.
+
+Verified on the installed disk in QEMU: with the clock at 2000, `wget` fails with
+"certificate verify failed" and `apk` with "TLS: server certificate not trusted";
+after `bmx-clock` (NTP reachable through slirp) the clock reads 2026 and both
+clients succeed, and setting the clock to `/etc/bmx-build-date` with `date -s`
+makes wget succeed as well, which is the fallback branch.

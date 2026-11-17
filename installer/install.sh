@@ -13,11 +13,16 @@ log() {
     echo "BMX-INSTALLER: $*" > /dev/console
 }
 
+# The TUI replaces this with the on-screen bar. The engine still works when it is
+# sourced without a screen (a test, or a recovery shell), and a step without a
+# percentage simply does not move the bar.
+progress() { :; }
+
 die() {
     log "error: $*"
-    dialog --title "Error" --msgbox "$*" 10 70
+    dialog --title "Error" --msgbox "$*" 10 70 < /dev/tty0 > /dev/tty0 2>&1
     # Keep PID 1 alive: a failed install drops to a shell instead of panicking.
-    exec /bin/sh
+    exec /bin/sh < /dev/tty0 > /dev/tty0 2>&1
 }
 
 part_dev() {
@@ -116,17 +121,54 @@ validate_manual() {
     return 0
 }
 
+# Extracts the payload with a real percentage: gzip's read offset over the
+# compressed archive is the fraction of the rootfs consumed, which is the only
+# step long enough to need a moving bar. The status file, not kill -0, marks the
+# end because a finished child can still be a zombie while the shell has not
+# reaped it.
+extract_rootfs() {
+    archive=$PAYLOAD/rootfs.tar.gz
+    total=$(stat -c %s "$archive" 2>/dev/null) || return 1
+    [ -n "$total" ] && [ "$total" -gt 0 ] || return 1
+    pipe=/tmp/bmx-rootfs.pipe
+    rm -f "$pipe" /tmp/bmx-tar.status
+    mkfifo "$pipe" || return 1
+    gzip -dc "$archive" > "$pipe" &
+    gz=$!
+    ( tar -xf "$pipe" -C /mnt/root; echo "$?" > /tmp/bmx-tar.status ) &
+    tx=$!
+    while [ ! -f /tmp/bmx-tar.status ]; do
+        read_bytes=$(awk '/^rchar:/{print $2; exit}' "/proc/$gz/io" 2>/dev/null)
+        case "$read_bytes" in '' | *[!0-9]*) read_bytes=0 ;; esac
+        pct=$((40 + read_bytes * 45 / total))
+        [ "$pct" -gt 85 ] && pct=85
+        progress "$pct" "extrayendo el sistema"
+        sleep 1
+    done
+    wait "$tx" 2>/dev/null
+    tar_status=$(cat /tmp/bmx-tar.status 2>/dev/null)
+    if [ "${tar_status:-1}" != 0 ]; then
+        kill "$gz" 2>/dev/null || true
+    fi
+    wait "$gz" 2>/dev/null || true
+    rm -f "$pipe" /tmp/bmx-tar.status
+    [ "${tar_status:-1}" = 0 ]
+}
+
 install_system() {
     disk=$1
     layout=$2
     id=$(new_disk_id)
     [ -n "$id" ] || die "no se pudo generar el identificador de disco"
+    progress 3 "preparando $disk"
     log "disk $disk layout $layout id $id"
     if [ "$layout" = auto ]; then
+        progress 8 "escribiendo la tabla de particiones"
         write_mbr_default "$disk" "$id"
         ESP_NUM=1
         ROOT_NUM=2
     else
+        progress 8 "leyendo la tabla de $disk"
         sfdisk --disk-id "$disk" "0x$id" >/dev/null 2>&1 || true
         validate_manual "$disk" || die "$VALIDATION_ERROR"
     fi
@@ -148,27 +190,36 @@ install_system() {
         die "no se pudo parchear el PARTUUID"
 
     log "format esp $ESP_PART"
+    progress 15 "formateando el ESP en $ESP_PART"
     mkfs.fat -F 32 -I -n BMXDATA "$ESP_PART" >/dev/null || die "mkfs.fat falló en $ESP_PART"
     mkdir -p /mnt/esp
     mount "$ESP_PART" /mnt/esp || die "no se pudo montar $ESP_PART"
-    cp -a "$PAYLOAD/esp/." /mnt/esp/ || die "no se pudo copiar el ESP"
+    progress 25 "copiando el arranque al ESP"
+    # -r, not -a: the ESP is FAT32, which has no owners or modes to preserve;
+    # cp -a would warn about every file on a filesystem that cannot store them.
+    cp -r "$PAYLOAD/esp/." /mnt/esp/ || die "no se pudo copiar el ESP"
     cp /tmp/kernel.bin /mnt/esp/EFI/BOOT/KERNEL.BIN || die "no se pudo copiar KERNEL.BIN"
     umount /mnt/esp || die "no se pudo desmontar el ESP"
 
     log "format root $ROOT_PART"
+    progress 35 "formateando la raíz en $ROOT_PART"
     mkfs.ext4 -q -F -L BMXROOT "$ROOT_PART" || die "mkfs.ext4 falló en $ROOT_PART"
     mkdir -p /mnt/root
     mount "$ROOT_PART" /mnt/root || die "no se pudo montar $ROOT_PART"
-    tar -xzf "$PAYLOAD/rootfs.tar.gz" -C /mnt/root || die "no se pudo extraer el rootfs"
+    progress 40 "extrayendo el sistema"
+    extract_rootfs || die "no se pudo extraer el rootfs"
     mkdir -p /mnt/root/etc
+    progress 88 "copiando el mapa de teclado"
     cp "$KEYMAP_FILE" /mnt/root/etc/keymap || die "no se pudo copiar el keymap"
     umount /mnt/root || die "no se pudo desmontar la raíz"
 
     log "write stage 2 and kernel"
+    progress 93 "escribiendo stage 2 y el kernel"
     dd if="$PAYLOAD/stage2.bin" of="$disk" bs=512 seek=1 conv=notrunc 2>/dev/null ||
         die "no se pudo escribir stage 2"
     dd if=/tmp/kernel.bin of="$disk" bs=512 seek=17 conv=notrunc 2>/dev/null ||
         die "no se pudo escribir el kernel"
     sync
+    progress 100 "instalación completada"
     log "complete on $disk root=$ROOT_NUM keymap=$KEYMAP_FILE"
 }

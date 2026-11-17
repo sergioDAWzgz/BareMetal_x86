@@ -136,13 +136,19 @@ screen; `bmx-banner` then prints the OS name and the running kernel (`uname -r`)
 The shells run bash with a Debian-like coloured prompt and `ls`/`grep` colours
 from `/etc/profile.d/bmx-color.sh`; `bmx-console-font` sets Terminus 8x16 on the
 monitor, the family and cell size Debian's console-setup uses, and the banner
-leaves a blank line before the prompt. The kernel also carries `efifb` and
-QEMU's `bochs-drm`: the first gives the UEFI installer a console on the
-firmware's framebuffer, the second gives the emulated gate a screen, so the
-console and the shutdown behaviour can be checked without the board. The rootfs
-carries the Alpine `ca-certificates` bundle at
-`/etc/ssl/certs/ca-certificates.crt`, so TLS clients work without any extra
-package. `reboot` and `poweroff` are small wrappers in
+leaves a blank line before the prompt. The `font-terminus` package also carries
+6x12, 8x14, 10x18, 10x20, 11x22, 12x24, 14x28 and 16x32, each in normal and
+bold, so a different cell size is one line in `bmx-console-font`. The kernel
+also carries `efifb` and QEMU's `bochs-drm`: the first gives the UEFI installer a
+console on the firmware's framebuffer, the second gives the emulated gate a
+screen, so the console and the shutdown behaviour can be checked without the
+board. The rootfs carries the Alpine `ca-certificates` bundle at
+`/etc/ssl/certs/ca-certificates.crt` and the OpenSSL default symlink
+`/etc/ssl/cert.pem`, so TLS clients work without any extra package. A dead RTC
+battery leaves the clock at 2000 and every TLS handshake then fails as "not yet
+valid", so `bmx-clock` asks NTP once DHCP has a lease, writes the time back to
+the RTC and, if NTP is unreachable, falls back to `/etc/bmx-build-date` until the
+clock is plausible. `reboot` and `poweroff` are small wrappers in
 `/usr/local/sbin`: they raise the kernel console log level and let OpenRC's
 shutdown run on tty1, so the monitor shows the stopping services and the kernel
 shutdown messages with their `[ seconds ]` timestamps instead of a silent
@@ -408,6 +414,11 @@ mode requires one FAT32 partition (type `c`) and one ext4 root (type `83`), with
 the first partition starting after sector 144; the installer generates the disk
 signature and patches `root=PARTUUID=<disk>-<part>` into the kernel before
 writing it.
+
+While it installs, the local screen shows one line with the last step (the full
+log stays on COM1) above a dialog-style bar. The bar follows the gzip read
+offset of the payload archive, so the long rootfs extraction is the part that
+moves; the other steps are milestones.
 
 The chosen keymap is stored as `/etc/keymap` in the installed rootfs and loaded
 by `bmx-keymap` at boot; the default is `es`. `installer/test-iso.sh` installs

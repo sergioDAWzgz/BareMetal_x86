@@ -430,9 +430,11 @@ fi
 
 # The font and the CA bundle are static files the serial gate cannot see, so a
 # package rename or a missing dependency fails the build here instead of
-# producing a quiet image.
+# producing a quiet image. cert.pem is the path OpenSSL uses by default; the
+# Alpine package ships it as a symlink to the bundle.
 for asset in "$ALPINE_ROOT/usr/share/consolefonts/ter-116n.psf.gz" \
-             "$ALPINE_ROOT/etc/ssl/certs/ca-certificates.crt"; do
+             "$ALPINE_ROOT/etc/ssl/certs/ca-certificates.crt" \
+             "$ALPINE_ROOT/etc/ssl/cert.pem"; do
   if [ ! -e "$asset" ]; then
     echo "error: $asset is missing from the Alpine rootfs" >&2
     exit 1
@@ -467,6 +469,7 @@ cat > "$ALPINE_ROOT/etc/inittab" <<'EOF'
 ::wait:/usr/local/bin/bmx-clear
 ::wait:/usr/local/bin/bmx-banner
 ::once:/usr/local/bin/bmx-net
+::once:/usr/local/bin/bmx-clock
 ::once:/usr/local/bin/bmx-mouse
 tty1::respawn:/usr/local/bin/bmx-shell
 ttyS0::respawn:/usr/local/bin/bmx-shell
@@ -497,8 +500,20 @@ tmpfs     /tmp  tmpfs     defaults 0 0
 EOF
 
 echo bmx > "$ALPINE_ROOT/etc/hostname"
+# The RTC on a bench board often has a dead battery, which leaves the clock at
+# 2000 and makes every TLS handshake fail as "not yet valid". bmx-clock tries
+# NTP and, when there is none, falls back to this image build date so the
+# certificate store is judged against a plausible "now".
+date -u '+%Y-%m-%d %H:%M:%S' > "$ALPINE_ROOT/etc/bmx-build-date"
 mkdir -p "$ALPINE_ROOT/etc/profile.d"
 echo 'export LIBVA_DRIVER_NAME=i965' > "$ALPINE_ROOT/etc/profile.d/bmx-va.sh"
+
+cat > "$ALPINE_ROOT/etc/profile.d/bmx-tls.sh" <<'EOF'
+# Name the Alpine bundle explicitly. It is the default for OpenSSL, but a client
+# that only honours the environment then finds the same file.
+export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+export SSL_CERT_DIR=/etc/ssl/certs
+EOF
 
 # The 1080p H.264 clip and the scripts that measure the decode. The clip is
 # small, pinned by digest, and lives in the root filesystem so the board test
@@ -547,7 +562,7 @@ if [ -f /lib/firmware/rtl_nic/rtl8168h-2.fw ] ||
 else
     echo "bmx: network firmware missing"
 fi
-if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+if [ -f /etc/ssl/certs/ca-certificates.crt ] && [ -e /etc/ssl/cert.pem ]; then
     echo "bmx: tls certificates ready"
 else
     echo "bmx: tls certificates missing"
@@ -562,9 +577,9 @@ fi
 for script in /usr/local/bin/bmx-shell /usr/local/bin/bmx-keymap \
               /usr/local/bin/bmx-console-font /usr/local/bin/bmx-clear \
               /usr/local/bin/bmx-banner /usr/local/bin/bmx-shutdown \
-              /usr/local/bin/bmx-net /usr/local/bin/bmx-decode \
-              /usr/local/bin/bmx-play /usr/local/sbin/reboot \
-              /usr/local/sbin/poweroff; do
+              /usr/local/bin/bmx-net /usr/local/bin/bmx-clock \
+              /usr/local/bin/bmx-decode /usr/local/bin/bmx-play \
+              /usr/local/sbin/reboot /usr/local/sbin/poweroff; do
     name=${script##*/}
     if [ -x "$script" ] && sh -n "$script"; then
         echo "bmx: $name ready"
@@ -706,6 +721,40 @@ cat > "$ALPINE_ROOT/usr/local/bin/bmx-net" <<'EOF'
 exit 0
 EOF
 
+cat > "$ALPINE_ROOT/usr/local/bin/bmx-clock" <<'EOF'
+#!/bin/sh
+# A dead RTC battery leaves the clock at 2000, and every TLS client then rejects
+# the server certificate: wget fails with "certificate verify failed" and apk
+# with "TLS: server certificate not trusted". Once DHCP has a lease, ask NTP and
+# write the corrected time back to the RTC; if NTP is unreachable and the clock
+# is implausible, fall back to the image build date so TLS can still work.
+i=0
+while [ "$i" -lt 20 ]; do
+    if [ -f /run/bmx-net.eth0 ] || [ -f /run/bmx-net.eth1 ]; then
+        break
+    fi
+    sleep 1
+    i=$((i + 1))
+done
+if timeout 15 ntpd -q -n -p 0.pool.ntp.org -p 1.pool.ntp.org 2>/dev/null; then
+    hwclock -w 2>/dev/null || true
+    echo "bmx: clock synced $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+    exit 0
+fi
+year=$(date -u +%Y)
+case "$year" in '' | *[!0-9]*) year=0 ;; esac
+if [ "$year" -ge 2025 ]; then
+    echo "bmx: clock plausible $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+    exit 0
+fi
+if [ -f /etc/bmx-build-date ] &&
+   date -u -s "$(cat /etc/bmx-build-date)" >/dev/null 2>&1; then
+    echo "bmx: clock set to build date $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+    exit 0
+fi
+echo "bmx: clock not set (TLS may fail)"
+EOF
+
 cat > "$ALPINE_ROOT/usr/local/bin/bmx-decode" <<'EOF'
 #!/bin/sh
 set -e
@@ -766,6 +815,7 @@ chmod +x "$ALPINE_ROOT/usr/local/bin/bmx-check" \
          "$ALPINE_ROOT/usr/local/bin/bmx-banner" \
          "$ALPINE_ROOT/usr/local/bin/bmx-shutdown" \
          "$ALPINE_ROOT/usr/local/bin/bmx-net" \
+         "$ALPINE_ROOT/usr/local/bin/bmx-clock" \
          "$ALPINE_ROOT/usr/local/bin/bmx-mouse" \
          "$ALPINE_ROOT/usr/local/bin/bmx-decode" \
          "$ALPINE_ROOT/usr/local/bin/bmx-play" \
