@@ -429,11 +429,14 @@ immediately.
 The chosen keymap is stored as `/etc/keymap` in the installed rootfs and loaded
 by `bmx-keymap` at boot; the default is `es`. `installer/test-iso.sh` installs
 into a blank 2 GiB QEMU disk and boots the result through the same firmware; it
-needs `qemu`, `ovmf`, `mtools` and `python3`. `BMX_TEST_BOOT=bios` uses SeaBIOS
-instead of OVMF, `BMX_TEST_MEDIA=usb` boots the ISO as a raw USB stick, and
-`BMX_TEST_MEDIA=fat` (UEFI only) reproduces a Rufus ISO-mode stick.
-`BMX_TEST_KEEP=1` reuses the target disk, so running the script a second time
-exercises the default install over an existing installation.
+needs `qemu`, `ovmf`, `mtools`, `util-linux` (`sfdisk`) and `python3`.
+`BMX_TEST_BOOT=bios` uses SeaBIOS instead of OVMF, `BMX_TEST_MEDIA=usb` boots the
+ISO as a raw USB stick, `BMX_TEST_MEDIA=fat` (UEFI only) reproduces a Rufus
+ISO-mode stick, and `BMX_TEST_LAYOUT=manual` walks the manual path: it seeds the
+table cfdisk would produce, opens and leaves cfdisk, then lets the installer
+validate it, patch the PARTUUID, format and boot. `BMX_TEST_KEEP=1` reuses the
+target disk, so running the script a second time exercises the default install
+over an existing installation.
 
 The installer is destructive: it rewrites the target disk's MBR and both
 filesystems.

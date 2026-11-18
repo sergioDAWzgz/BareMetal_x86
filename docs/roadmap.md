@@ -62,7 +62,10 @@ reachable, 3b is input and firmware tables.
 - [x] ACPI table discovery: RSDP from the EBDA/ROM scan on BIOS and from the UEFI
       configuration table, then the XSDT/RSDT walk, MADT (local APIC, IO APICs,
       interrupt source overrides) and MCFG (PCIe ECAM window)
-- [ ] SMBus/`i2c` for the ALC888S codec, if it turns out to be needed in 5b
+- [x] SMBus/`i2c` is not needed for the ALC888S: 5b drives the codec through
+      `snd-hda-intel` on the HDA link, not SMBus. The codec parser
+      (`CONFIG_SND_HDA_CODEC_REALTEK`) is off, which is the separate audio
+      enabler, and audio is outside the current phases
 
 Gate: the kernel lists the JNF3A's RTL8111H and ALC888S and draws on the real
 display. PCI enumeration, drawing and typing were proven in QEMU on both paths
@@ -285,7 +288,10 @@ not only sampled by hand.
       boot; the stock image keeps the US default
 - [x] `installer/test-iso.sh` installs into a blank 2 GiB QEMU disk and boots the
       result to OpenRC through OVMF
-- [ ] exercise the manual `cfdisk` path end to end in QEMU and on the board
+- [ ] exercise the manual `cfdisk` path on the board: the QEMU equivalent is
+      covered by `BMX_TEST_LAYOUT=manual`, which seeds the table cfdisk would
+      produce, opens and leaves cfdisk, and then runs the installer's validation,
+      PARTUUID patch, format and boot
 - [x] a BIOS boot path for the installer ISO (the installed OS already has both):
       isolinux loads the same kernel through an El Torito entry, and the
       isohybrid MBR plus the GPT EFI entry make a raw-written USB bootable both

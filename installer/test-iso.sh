@@ -18,12 +18,21 @@ OVMF_CODE=${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}
 OVMF_VARS=${OVMF_VARS:-/usr/share/OVMF/OVMF_VARS_4M.fd}
 MEDIA=${BMX_TEST_MEDIA:-cd}
 BOOT=${BMX_TEST_BOOT:-uefi}
+LAYOUT=${BMX_TEST_LAYOUT:-auto}
 KEEP=${BMX_TEST_KEEP:-0}
+MON=/tmp/bmx-test-mon.sock
 
 case "$BOOT" in
 uefi | bios) ;;
 *)
   echo "FAIL: BMX_TEST_BOOT must be uefi or bios" >&2
+  exit 1
+  ;;
+esac
+case "$LAYOUT" in
+auto | manual) ;;
+*)
+  echo "FAIL: BMX_TEST_LAYOUT must be auto or manual" >&2
   exit 1
   ;;
 esac
@@ -47,8 +56,17 @@ else
   rm -f "$TARGET"
   truncate -s 2G "$TARGET"
 fi
-rm -f "$INSTALL_LOG" "$BOOT_LOG"
-echo "boot: $BOOT (media: $MEDIA)"
+rm -f "$INSTALL_LOG" "$BOOT_LOG" "$MON"
+# The manual path is driven through cfdisk; seed the table it would produce so
+# the test can leave cfdisk without scripting its menu, and let the installer's
+# own validation, PARTUUID patch and format run.
+if [ "$LAYOUT" = manual ]; then
+  sectors=$(( $(stat -c %s "$TARGET") / 512 ))
+  root_size=$((sectors - 133120))
+  printf 'label: dos\nstart=2048, size=131072, type=c\nstart=133120, size=%d, type=83\n' \
+    "$root_size" | sfdisk --force "$TARGET" >/dev/null
+fi
+echo "boot: $BOOT (media: $MEDIA, layout: $LAYOUT)"
 
 case "$MEDIA" in
 cd | usb | fat) ;;
@@ -79,14 +97,66 @@ elif [ "$MEDIA" = usb ]; then
 else
   INSTALL_MEDIA=(-cdrom "$ISO")
 fi
+# A pre-partitioned target has a bootable MBR, and SeaBIOS tries the disk before
+# the CD; give the CD priority so the installer boots whether the table is seeded
+# or not. The USB media carries bootindex=1 for the same reason.
+BOOTARGS=()
+if [ "$BOOT" = bios ] && [ "$MEDIA" = cd ]; then
+  BOOTARGS=(-boot order=d)
+fi
+
+# Sends one HMP command to the QEMU monitor. The installer reads the keyboard
+# from tty0, so sendkey is how the harness drives the TUI.
+monitor() {
+  python3 - "$MON" "$1" <<'PY'
+import socket, sys, time
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.connect(sys.argv[1])
+time.sleep(0.1)
+s.sendall((sys.argv[2] + "\n").encode())
+time.sleep(0.2)
+s.close()
+PY
+}
+
+key() {
+  monitor "sendkey $1"
+  sleep "${2:-0.35}"
+}
+
+# Walks the menu to the manual path. cfdisk is left with q without changing the
+# seeded table, so what gets exercised is the installer's validation, PARTUUID
+# patch, format and boot, not a scripted cfdisk menu.
+drive_manual() {
+  for _ in $(seq 1 240); do
+    grep -q 'BMX-INSTALLER: ISO .* mounted' "$INSTALL_LOG" 2>/dev/null && break
+    sleep 0.5
+  done
+  sleep 2
+  key a 1.5
+  key down
+  key down
+  key down
+  key ret 1.5
+  key ret 1.5
+  key ret 1.5
+  key q 1.5
+  key ret 1.5
+  key ret 1.2
+}
 
 qemu-system-x86_64 -machine q35 -cpu qemu64 -m 1024 \
   "${FIRMWARE[@]}" \
   -drive file="$TARGET",format=raw,if=none,id=target \
   -device ide-hd,drive=target \
-  "${INSTALL_MEDIA[@]}" -display none -serial "file:$INSTALL_LOG" -no-reboot \
+  "${INSTALL_MEDIA[@]}" "${BOOTARGS[@]}" -display none -serial "file:$INSTALL_LOG" \
+  -monitor "unix:$MON,server,nowait" -no-reboot \
   >/dev/null 2>&1 &
 pid=$!
+if [ "$LAYOUT" = manual ]; then
+  drive_manual &
+  drive_pid=$!
+fi
 for _ in $(seq 1 1800); do
   if grep -q 'BMX-INSTALLER: complete' "$INSTALL_LOG" 2>/dev/null; then
     break
@@ -95,12 +165,20 @@ for _ in $(seq 1 1800); do
   sleep 0.5
 done
 kill "$pid" 2>/dev/null || true
+if [ "$LAYOUT" = manual ]; then
+  wait "$drive_pid" 2>/dev/null || true
+fi
 wait "$pid" 2>/dev/null || true
 echo "=== install log ==="
 grep -a 'BMX-INSTALLER' "$INSTALL_LOG" || true
 if ! grep -q 'BMX-INSTALLER: complete' "$INSTALL_LOG"; then
   echo "FAIL: the default install did not complete" >&2
   tail -20 "$INSTALL_LOG" >&2
+  exit 1
+fi
+if [ "$LAYOUT" = manual ] &&
+   ! grep -q 'BMX-INSTALLER: disk /dev/sda layout manual' "$INSTALL_LOG"; then
+  echo "FAIL: the install log does not show the manual layout" >&2
   exit 1
 fi
 

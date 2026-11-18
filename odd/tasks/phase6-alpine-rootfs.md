@@ -281,3 +281,17 @@ Verified with QEMU screendumps on the installed disk: before the request the
 console showed the banner and the prompt; 0.5 s after `reboot` on the serial
 shell and after `sendkey ctrl-alt-delete`, tty1 held only "Reiniciando el
 sistema..." and COM1 logged "The system is going down NOW!".
+
+L20: "Procede con los tres."
+
+The SMBus/i2c question is closed as not needed. The ALC888S is an HDA codec and
+phase 5b drives it through `snd-hda-intel` on the HDA link; SMBus is not part of
+that path, so no `i2c` work is pending for it. The built config has
+`CONFIG_SND_HDA_INTEL=y` but every codec parser off, including
+`CONFIG_SND_HDA_CODEC_REALTEK`; that parser, not i2c, is the missing piece if
+audio is ever in scope, and audio is outside the current phases.
+
+The 1080p60 re-check is the one remaining item that needs the board: QEMU has no
+i965 and no VA-API, so the dropped-frame count can only be measured on the N2807
+with `bmx-play` and `--profile=fast`. Its first board run dropped 177 of 600
+frames; the display/render path, not the decode, is the limit.

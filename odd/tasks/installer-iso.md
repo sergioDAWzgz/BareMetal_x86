@@ -48,6 +48,10 @@ work-unit commits. Gate: `./test.sh` plus an install-and-boot QEMU check.
 - S14: the same ISO boots through BIOS as well as UEFI; isolinux loads the same
   installer kernel, and a raw-written USB stick is bootable from both firmware
   families (isohybrid MBR plus the GPT EFI entry).
+- S15: `installer/test-iso.sh` can drive the manual path: `BMX_TEST_LAYOUT=manual`
+  seeds the table cfdisk would produce, opens and leaves cfdisk through the QEMU
+  monitor, and exercises the installer's manual validation, PARTUUID patch,
+  format and installed boot.
 
 ## Tasks
 
@@ -66,6 +70,7 @@ work-unit commits. Gate: `./test.sh` plus an install-and-boot QEMU check.
 - T10 automatic reboot countdown after install - inline - done (this commit)
 - T11 countdown bar in the default-install screen - inline - done (this commit)
 - T12 BIOS boot path for the installer ISO - inline - done (this commit)
+- T13 manual layout coverage in test-iso.sh - inline - done (this commit)
 
 ## Log
 
@@ -268,3 +273,19 @@ Verified: `BMX_TEST_BOOT=bios` installs and boots the installed disk through
 SeaBIOS from the ISO as a CD and as a raw USB stick (the ISO reports `(dos)`
 because of the hybrid MBR, and the init mounts it as iso9660); the default UEFI
 run still passes.
+
+L17: "Procede con los tres."
+
+The first item is the manual cfdisk path. `installer/test-iso.sh` gained
+`BMX_TEST_LAYOUT=manual`: it seeds the target with the table cfdisk would produce
+(ESP at 2048 + 64 MiB, root at 133120 to the end), boots the ISO, drives tty0
+through the QEMU monitor (`a` to cancel the countdown, three downs and Enter, the
+disk dialog, the cfdisk notice, `q` to leave cfdisk without changes, then
+Instalar ahora and the confirmation), and asserts
+`BMX-INSTALLER: disk /dev/sda layout manual` before the usual layout and boot
+checks. The pre-seeded table also made the BIOS case need `-boot order=d`: with a
+bootable MBR on the target, SeaBIOS tried that disk before the CD.
+
+Verified: the manual path passes under OVMF and under SeaBIOS (install, layout,
+PARTUUID patch and installed boot). The board run is the only part of that
+roadmap item that remains.
