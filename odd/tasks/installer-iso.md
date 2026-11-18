@@ -289,3 +289,14 @@ bootable MBR on the target, SeaBIOS tried that disk before the CD.
 Verified: the manual path passes under OVMF and under SeaBIOS (install, layout,
 PARTUUID patch and installed boot). The board run is the only part of that
 roadmap item that remains.
+
+L18: "Vale, todo verificado. Endurécelo según el aviso."
+
+The late risk lens (R1-MONITOR-SOCKET) warned that the QEMU HMP monitor was on a
+fixed path in the shared temporary directory and was opened even for the auto
+layout. `test-iso.sh` now creates a private per-run directory with `mktemp -d`
+(mode 0700), puts the socket inside it, opens `-monitor` only for
+`BMX_TEST_LAYOUT=manual`, checks that the socket path fits the 108-byte Unix
+limit, and removes the directory from an EXIT trap. The FAT-media staging file
+also moved into that directory instead of `/tmp/bmx-bootx64.efi`. The manual and
+auto paths were re-run after the change.

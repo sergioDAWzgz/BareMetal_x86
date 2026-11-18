@@ -136,7 +136,11 @@ screen; `bmx-banner` then prints the OS name and the running kernel (`uname -r`)
 The shells run bash with a Debian-like coloured prompt and `ls`/`grep` colours
 from `/etc/profile.d/bmx-color.sh`; `bmx-console-font` sets Terminus 8x16 on the
 monitor, the family and cell size Debian's console-setup uses, and the banner
-leaves a blank line before the prompt. The `font-terminus` package also carries
+leaves a blank line before the prompt. Analog audio is the ALC888S on the Intel
+HDA controller: `snd-hda-intel` with the Realtek codec parser is built in (the
+gate exercises the same path with QEMU's generic HDA codec), and `alsa-utils`
+ships `aplay`/`amixer`; the board check is `aplay -l` listing the ALC888S. The
+`font-terminus` package also carries
 6x12, 8x14, 10x18, 10x20, 11x22, 12x24, 14x28 and 16x32, each in normal and
 bold, so a different cell size is one line in `bmx-console-font`. The kernel
 also carries `efifb` and QEMU's `bochs-drm`: the first gives the UEFI installer a

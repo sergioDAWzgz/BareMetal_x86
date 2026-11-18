@@ -71,6 +71,15 @@ CONFIG_FRAMEBUFFER_CONSOLE_DETECT_PRIMARY=y
 CONFIG_FB_EFI=y
 CONFIG_DRM_BOCHS=y
 
+# Analog audio. The ALC888S is a Realtek HDA codec on the Intel HDA controller;
+# snd-hda-intel is in defconfig, but every codec parser is off there. Pin the
+# Realtek parser for the board, the analog parser for generic codecs (QEMU's
+# hda-duplex in the gate), and the HDMI one for i915 audio.
+CONFIG_SND_HDA_INTEL=y
+CONFIG_SND_HDA_CODEC_REALTEK=y
+CONFIG_SND_HDA_CODEC_ANALOG=y
+CONFIG_SND_HDA_CODEC_HDMI=y
+
 # Input for that console. defconfig already builds the USB stack in (modules are
 # off), but the local console depends on these, so the dependency is pinned here
 # instead of resting on a default that a defconfig bump could drop. evdev feeds

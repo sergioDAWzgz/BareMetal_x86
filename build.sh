@@ -323,6 +323,16 @@ fi
 kernel_make -j"$(nproc)" bzImage
 cp "$LINUX_TREE/arch/x86/boot/bzImage" "$BUILD_DIR/bzImage"
 
+# merge_config/olddefconfig drop a symbol whose dependencies are unmet without
+# failing, so the audio parsers the board and the gate need are checked here.
+for opt in CONFIG_SND_HDA_INTEL CONFIG_SND_HDA_CODEC_REALTEK \
+           CONFIG_SND_HDA_CODEC_ANALOG CONFIG_SND_HDA_CODEC_HDMI; do
+  if ! grep -q "^$opt=y" "$LINUX_TREE/.config"; then
+    echo "error: $opt is missing from the Linux configuration" >&2
+    exit 1
+  fi
+done
+
 # The data volume the kernel mounts in phase 4. It is a real FAT32 filesystem
 # with a known label, so the kernel's read-only driver is checked against an
 # image any other system can inspect, and the label lets the kernel pick the
@@ -371,7 +381,7 @@ ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/$ALPINE_BRANCH"
 ALPINE_MINIROOTFS_SHA256=cdaa38cb8de3537967ee5b6c9b6cd00cc962da2b018e6eea48696bb274923012
 ALPINE_APK_TOOLS=apk-tools-static-3.0.9-r0.apk
 ALPINE_APK_TOOLS_SHA256=0a1a0682375f66a83b7b903f6e4638ccfe312547d50d336b5f2be9fc391281be
-ALPINE_PACKAGES="alpine-base bash ca-certificates ffmpeg font-terminus gpm grep kbd kbd-bkeymaps libva libva-intel-driver libva-utils linux-firmware-rtl_nic mesa-dri-gallium mpv"
+ALPINE_PACKAGES="alpine-base alsa-utils bash ca-certificates ffmpeg font-terminus gpm grep kbd kbd-bkeymaps libva libva-intel-driver libva-utils linux-firmware-rtl_nic mesa-dri-gallium mpv"
 ALPINE_CLIP_URL="https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_1MB.mp4"
 ALPINE_CLIP_SHA256=38d763af0161e28145e6300d9a5b3b1e4a387ed8f6c4ba7ac1a5f2948d8fac51
 ALPINE_CACHE="$LINUX_CACHE/alpine-$ALPINE_VERSION"
@@ -455,8 +465,10 @@ done
 # because it is the only channel that reports a failure before Linux is up.
 # sysfs is mounted here because the empty OpenRC runlevels leave it to the
 # services, and libva's DRM display cannot classify the render node without
-# /sys.
+# /sys. proc is mounted here too: bmx-check reads /proc/asound for the audio
+# markers, and it runs before OpenRC's sysinit.
 cat > "$ALPINE_ROOT/etc/inittab" <<'EOF'
+::sysinit:/bin/mount -t proc proc /proc
 ::sysinit:/bin/mount -t sysfs sysfs /sys
 ::sysinit:/bin/hostname -F /etc/hostname
 ::sysinit:/usr/local/bin/bmx-keymap
@@ -566,6 +578,30 @@ if [ -f /etc/ssl/certs/ca-certificates.crt ] && [ -e /etc/ssl/cert.pem ]; then
     echo "bmx: tls certificates ready"
 else
     echo "bmx: tls certificates missing"
+fi
+if [ -d /proc/asound ]; then
+    echo "bmx: audio core ready"
+else
+    echo "bmx: audio core missing"
+fi
+if command -v aplay >/dev/null 2>&1; then
+    echo "bmx: audio tools ready"
+else
+    echo "bmx: audio tools missing"
+fi
+if command -v aplay >/dev/null 2>&1 && aplay -l >/dev/null 2>&1; then
+    echo "bmx: audio pcm ready"
+else
+    echo "bmx: audio pcm missing"
+fi
+if [ -r /proc/asound/cards ]; then
+    if grep -q '^ *[0-9]' /proc/asound/cards; then
+        echo "bmx: audio card ready"
+    else
+        echo "bmx: audio card missing"
+    fi
+else
+    echo "bmx: audio proc missing"
 fi
 if ! command -v mpv >/dev/null 2>&1; then
     echo "bmx: mpv missing"
@@ -783,15 +819,19 @@ if [ ! -f "$CLIP" ]; then
 fi
 export LIBVA_DRIVER_NAME=${LIBVA_DRIVER_NAME:-i965}
 echo "== vainfo =="
-if ! vainfo > /tmp/bmx-vainfo.txt 2>&1; then
+report=$(mktemp /tmp/bmx-vainfo.XXXXXX)
+if ! vainfo > "$report" 2>&1; then
     echo "bmx-decode: vainfo failed"
-    cat /tmp/bmx-vainfo.txt
+    cat "$report"
+    rm -f "$report"
     exit 1
 fi
-if ! grep -E 'Driver version|VAProfileH264' /tmp/bmx-vainfo.txt; then
+if ! grep -E 'Driver version|VAProfileH264' "$report"; then
     echo "bmx-decode: vainfo did not report the i965 H.264 profiles"
+    rm -f "$report"
     exit 1
 fi
+rm -f "$report"
 echo "== hardware decode (VA-API, zero copy) =="
 time ffmpeg -hide_banner -loglevel error -hwaccel vaapi \
     -hwaccel_output_format vaapi -hwaccel_device /dev/dri/renderD128 \

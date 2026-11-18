@@ -222,6 +222,11 @@ open until the board itself says which one it uses.
 - [x] keep TLS working on a board with a dead RTC: `bmx-clock` syncs over NTP once
       DHCP has a lease, writes the time to the RTC, and falls back to the image
       build date while the clock is still implausible
+- [x] analog audio: the ALC888S is an HDA codec driven by `snd-hda-intel` with the
+      Realtek parser built in; `alsa-utils` ships `aplay`/`amixer`, and the gate
+      asserts the sound core, the tools and a registered card (QEMU's generic
+      HDA codec exercises the same driver stack)
+- [ ] board audio: `aplay -l` lists the ALC888S and mpv plays through ALSA
 - [ ] re-check the 1080p60 display path: `bmx-play` now uses `--profile=fast` and
       refuses the software fallback; the first run dropped 177 of 600 frames, so
       the display/render path is the limit, not the decode

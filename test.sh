@@ -50,6 +50,11 @@ DISK_Q35=(
   -device ide-hd,drive=disk0,bootindex=1
 )
 
+# One HDA codec on every path: the gate exercises the same snd-hda-intel stack
+# the board uses, with QEMU's generic codec instead of the ALC888S.
+AUDIO=(-audiodev none,id=bmxaudio -device intel-hda
+       -device hda-duplex,audiodev=bmxaudio)
+
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
 # Runs QEMU until the marker, and the optional second marker, appear in the log,
@@ -146,6 +151,10 @@ common_assertions() {
   grep -q 'bmx: network eth1 ready'             "$log" || fail "$label: eth1 was not created"
   grep -q 'bmx: network firmware ready'         "$log" || fail "$label: the r8169 firmware is missing from the rootfs"
   grep -q 'bmx: tls certificates ready'         "$log" || fail "$label: the TLS certificate bundle is missing from the rootfs"
+  grep -q 'bmx: audio core ready'               "$log" || fail "$label: the sound core is missing from the kernel"
+  grep -q 'bmx: audio tools ready'              "$log" || fail "$label: alsa-utils is missing from the rootfs"
+  grep -q 'bmx: audio card ready'               "$log" || fail "$label: the HDA codec did not register a sound card"
+  grep -q 'bmx: audio pcm ready'                "$log" || fail "$label: aplay cannot enumerate the sound card"
   grep -q 'bmx: bmx-shell ready'                "$log" || fail "$label: bmx-shell is missing or does not parse"
   grep -q 'bmx: bmx-keymap ready'               "$log" || fail "$label: bmx-keymap is missing or does not parse"
   grep -q 'bmx: bmx-clear ready'                "$log" || fail "$label: bmx-clear is missing or does not parse"
@@ -192,6 +201,7 @@ run_until "$LOG" "$BOOT_SECONDS" 'bmx:(~|/root)#' 'bmx: network online' \
   -machine pc -cpu qemu64 \
   "${DISK_PC[@]}" \
   -m 512 -boot c -nic user,model=e1000 \
+  "${AUDIO[@]}" \
   -netdev user,id=n1,net=10.0.3.0/24 -device e1000,netdev=n1
 
 echo '--- serial output (BIOS) ---'
@@ -233,6 +243,7 @@ run_until "$LOG" "$BOOT_SECONDS" 'Kernel: 6\.12\.' '' \
   -machine q35 -cpu qemu64 -m 512 \
   "${DISK_Q35[@]}" \
   -boot c -nic user,model=e1000 \
+  "${AUDIO[@]}" \
   -netdev user,id=n1,net=10.0.3.0/24 -device e1000,netdev=n1
 
 echo '--- serial output (q35) ---'
@@ -270,6 +281,7 @@ run_until "$LOG" "$UEFI_SECONDS" 'Kernel: 6\.12\.' '' \
   -drive if=pflash,format=raw,file=build/OVMF_VARS.fd \
   "${DISK_PC[@]}" \
   -nic user,model=e1000 \
+  "${AUDIO[@]}" \
   -netdev user,id=n1,net=10.0.3.0/24 -device e1000,netdev=n1
 
 echo '--- serial output (UEFI) ---'

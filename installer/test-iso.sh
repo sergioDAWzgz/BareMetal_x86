@@ -20,7 +20,16 @@ MEDIA=${BMX_TEST_MEDIA:-cd}
 BOOT=${BMX_TEST_BOOT:-uefi}
 LAYOUT=${BMX_TEST_LAYOUT:-auto}
 KEEP=${BMX_TEST_KEEP:-0}
-MON=/tmp/bmx-test-mon.sock
+# The QEMU human monitor has no authentication. Give each run a private
+# directory (mktemp creates it 0700), and only open the monitor for the manual
+# layout, which is the only one that drives the TUI.
+RUN_DIR=$(mktemp -d "${TMPDIR:-/tmp}/bmx-test.XXXXXX") || exit 1
+trap 'rm -rf "$RUN_DIR"' EXIT
+MON="$RUN_DIR/monitor.sock"
+if [ "${#MON}" -gt 100 ]; then
+  echo "FAIL: the monitor socket path is too long for a Unix socket: $MON" >&2
+  exit 1
+fi
 
 case "$BOOT" in
 uefi | bios) ;;
@@ -56,7 +65,7 @@ else
   rm -f "$TARGET"
   truncate -s 2G "$TARGET"
 fi
-rm -f "$INSTALL_LOG" "$BOOT_LOG" "$MON"
+rm -f "$INSTALL_LOG" "$BOOT_LOG"
 # The manual path is driven through cfdisk; seed the table it would produce so
 # the test can leave cfdisk without scripting its menu, and let the installer's
 # own validation, PARTUUID patch and format run.
@@ -86,8 +95,8 @@ if [ "$MEDIA" = fat ]; then
   truncate -s 512M "$USB_IMG"
   mformat -i "$USB_IMG" -F -v BMXINSTALL ::
   mmd -i "$USB_IMG" ::/EFI ::/EFI/BOOT ::/payload
-  mcopy -i build/installer/efi.img ::/EFI/BOOT/BOOTX64.EFI /tmp/bmx-bootx64.efi
-  mcopy -i "$USB_IMG" /tmp/bmx-bootx64.efi ::/EFI/BOOT/BOOTX64.EFI
+  mcopy -i build/installer/efi.img ::/EFI/BOOT/BOOTX64.EFI "$RUN_DIR/bmx-bootx64.efi"
+  mcopy -i "$USB_IMG" "$RUN_DIR/bmx-bootx64.efi" ::/EFI/BOOT/BOOTX64.EFI
   mcopy -s -i "$USB_IMG" build/installer/payload/* ::/payload
   INSTALL_MEDIA=(-device qemu-xhci -device usb-storage,drive=usbstick,bootindex=1
                  -drive if=none,id=usbstick,file="$USB_IMG",format=raw)
@@ -103,6 +112,10 @@ fi
 BOOTARGS=()
 if [ "$BOOT" = bios ] && [ "$MEDIA" = cd ]; then
   BOOTARGS=(-boot order=d)
+fi
+MONARGS=()
+if [ "$LAYOUT" = manual ]; then
+  MONARGS=(-monitor "unix:$MON,server,nowait")
 fi
 
 # Sends one HMP command to the QEMU monitor. The installer reads the keyboard
@@ -149,8 +162,8 @@ qemu-system-x86_64 -machine q35 -cpu qemu64 -m 1024 \
   "${FIRMWARE[@]}" \
   -drive file="$TARGET",format=raw,if=none,id=target \
   -device ide-hd,drive=target \
-  "${INSTALL_MEDIA[@]}" "${BOOTARGS[@]}" -display none -serial "file:$INSTALL_LOG" \
-  -monitor "unix:$MON,server,nowait" -no-reboot \
+  "${INSTALL_MEDIA[@]}" "${BOOTARGS[@]}" "${MONARGS[@]}" \
+  -display none -serial "file:$INSTALL_LOG" -no-reboot \
   >/dev/null 2>&1 &
 pid=$!
 if [ "$LAYOUT" = manual ]; then

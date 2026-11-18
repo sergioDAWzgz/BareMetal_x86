@@ -295,3 +295,28 @@ The 1080p60 re-check is the one remaining item that needs the board: QEMU has no
 i965 and no VA-API, so the dropped-frame count can only be measured on the N2807
 with `bmx-play` and `--profile=fast`. Its first board run dropped 177 of 600
 frames; the display/render path, not the decode, is the limit.
+
+L21: "Añade también soporte para audio."
+
+The ALC888S is a Realtek HDA codec on the Intel HDA controller, so the support is
+the Linux codec stack, not SMBus. The kernel fragment pins `SND_HDA_INTEL`, the
+Realtek parser for the board, the analog parser for generic codecs (QEMU's
+hda-duplex in the gate) and the HDMI parser for i915 audio. `alsa-utils` adds
+`aplay`, `amixer` and `speaker-test`; `bmx-check` reports `audio core ready`,
+`audio tools ready` and `audio card ready`.
+
+A real defect surfaced while wiring the marker: `bmx-check` runs before OpenRC,
+and `/proc` was not mounted yet, so `/proc/asound` did not exist. The inittab now
+mounts proc next to sysfs before the check.
+
+Verified in QEMU on the three gate paths with `-device intel-hda -device
+hda-duplex`: `snd_hda_codec_generic` autoconfigures the codec, card #0 is HDA
+Intel, and all three audio markers appear; the gate asserts them. The Realtek
+parser and `aplay -l` on the ALC888S need the board.
+
+Late review advisories applied on top: the gate now pins QEMU's audio backend
+(`-audiodev none,id=bmxaudio`) so it never probes the host, `bmx-check` also runs
+`aplay -l` (`audio pcm ready`) to prove the libasound/dev/snd path, and `build.sh`
+fails if Kconfig drops `SND_HDA_INTEL`, `SND_HDA_CODEC_REALTEK`,
+`SND_HDA_CODEC_ANALOG` or `SND_HDA_CODEC_HDMI`. The README now presents `aplay -l`
+on the board as the pending board check, not as an observed result.
