@@ -340,8 +340,12 @@ new helpers:
   mounted before bmx-check.
 - `bmx-rtsp` plays `rtsp://` URLs with VA-API and KMS/DRM, `--ao=alsa` so the
   audio clock times the video, `--demuxer-readahead-secs=10` and
-  `--demuxer-max-bytes=256MiB` instead of mpv's 1 s default, and a 4 MiB RTSP
-  socket buffer (`BMX_RTSP_TRANSPORT=udp` switches transport).
+  `--demuxer-max-bytes=256MiB` instead of mpv's 1 s default;
+  `BMX_RTSP_TRANSPORT=udp` switches transport. The socket buffer is left to the
+  kernel: FFmpeg applies its `buffer_size` only to the UDP handles, and Linux
+  clamps `SO_RCVBUF` to `net.core.rmem_max` (208 KiB by default), so the earlier
+  4 MiB request and the `rmem_max` raise were removed rather than documented as
+  a fix they did not deliver.
 
 `bmx-check` reports both scripts and includes amixer in `audio tools ready`. QEMU
 cannot play the RTSP stream (no i965/VA-API) or produce sound (no backend), so the

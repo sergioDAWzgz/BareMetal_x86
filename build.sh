@@ -891,10 +891,11 @@ cat > "$ALPINE_ROOT/usr/local/bin/bmx-rtsp" <<'EOF'
 # Play an RTSP stream on the board: VA-API decode, KMS/DRM output and ALSA
 # audio. mpv buffers one second of demuxer data by default, which is too little
 # for a stream that arrives in bursts; ten seconds smooths the delivery and the
-# 256 MiB cap covers ten seconds at 200 Mbps. The 4 MiB socket buffer keeps the
-# RTP receive window from falling back to the OS default. Audio is enabled
-# because its clock keeps the video timing stable (bmx-play, which has no audio,
-# is the local benchmark). BMX_RTSP_TRANSPORT=udp switches from TCP interleaving.
+# 256 MiB cap covers ten seconds at 200 Mbps. Audio is enabled because its clock
+# keeps the video timing stable (bmx-play, which has no audio, is the local
+# benchmark). The socket buffer is left to the kernel: FFmpeg applies its
+# buffer_size only to the UDP handles and Linux clamps it anyway.
+# BMX_RTSP_TRANSPORT=udp switches from TCP interleaving.
 set -e
 URL=${1:-}
 case "$URL" in
@@ -911,8 +912,7 @@ exec mpv --no-config --profile=fast --vo=gpu --gpu-context=drm \
     --ao=alsa --osd-level=0 --fs --msg-level=all=warn \
     --demuxer-thread=yes --demuxer-readahead-secs=10 \
     --demuxer-max-bytes=256MiB \
-    --demuxer-lavf-o="rtsp_transport=$transport,buffer_size=4194304" \
-    "$URL"
+    --demuxer-lavf-o="rtsp_transport=$transport" "$URL"
 EOF
 chmod +x "$ALPINE_ROOT/usr/local/bin/bmx-check" \
          "$ALPINE_ROOT/usr/local/bin/bmx-shell" \

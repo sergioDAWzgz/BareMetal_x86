@@ -231,9 +231,9 @@ open until the board itself says which one it uses.
       `bmx-rtsp` uses `--ao=alsa`, so the board check is `speaker-test` and a
       stream with sound
 - [ ] smooth 1080p RTSP: the board drops frames on the Big Buck Bunny stream;
-      `bmx-rtsp` raises the demuxer readahead to 10 s, sets a 256 MiB cache and a
-      4 MiB RTSP socket buffer, and enables ALSA audio as the video clock; the
-      board must confirm it
+      `bmx-rtsp` raises the demuxer readahead to 10 s, sets a 256 MiB cache and
+      enables ALSA audio as the video clock; the socket buffer is left to the
+      kernel and the board must confirm the result
 - [x] re-check the 1080p60 display path: `bmx-play` is smooth on the board (the
       earlier 177/600 drops are gone); the display/render path was the limit, not
       the decode
