@@ -889,15 +889,31 @@ EOF
 cat > "$ALPINE_ROOT/usr/local/bin/bmx-rtsp" <<'EOF'
 #!/bin/sh
 # Play an RTSP stream on the board: VA-API decode, KMS/DRM output and ALSA
-# audio. mpv buffers one second of demuxer data by default, which is too little
-# for a stream that arrives in bursts; ten seconds smooths the delivery and the
-# 256 MiB cap covers ten seconds at 200 Mbps. Audio is enabled because its clock
-# keeps the video timing stable (bmx-play, which has no audio, is the local
-# benchmark). The socket buffer is left to the kernel: FFmpeg applies its
-# buffer_size only to the UDP handles and Linux clamps it anyway.
-# BMX_RTSP_TRANSPORT=udp switches from TCP interleaving.
+# audio. RTP runs over UDP by default: TCP interleaving makes one lost packet
+# stall every stream that shares the connection, which turns a bursty camera
+# into stuttering video while the audio keeps going.
+# BMX_RTSP_TRANSPORT=tcp switches back to the interleaved path.
+#
+# Video is paced by the display instead of the audio clock: with the audio clock
+# as master, a jittery ALSA device can make mpv drop video frames continuously
+# while the sound itself stays clean. display-resample resamples the audio to
+# the display refresh and falls back to the audio clock if the display timing is
+# unusable. BMX_RTSP_SYNC=audio restores the old behaviour.
+#
+# mpv's network cache is enabled for network streams, and --cache-secs defaults
+# to a very high value, so --demuxer-max-bytes is what bounds the prefetch.
+# cache-pause-initial waits for three seconds before the first frame, so the
+# startup burst does not cost frames; cache-pause (on by default) pauses
+# playback if the cache ever runs dry instead of letting video fall behind.
+#
+# The kernel clamps SO_RCVBUF to net.core.rmem_max (208 KiB by default), so a
+# burst of RTP packets overruns the socket and FFmpeg loses them before the
+# jitter buffer sees them. The RTP handle asks for 2 MiB; the script raises the
+# ceiling for this playback only, restores it on exit, and warns when procfs is
+# read-only so a clamped buffer is not mistaken for the tuned one.
 set -e
 URL=${1:-}
+set --
 case "$URL" in
 rtsp://* | rtsps://*) ;;
 *)
@@ -905,14 +921,42 @@ rtsp://* | rtsps://*) ;;
     exit 1
     ;;
 esac
-transport=${BMX_RTSP_TRANSPORT:-tcp}
+transport=${BMX_RTSP_TRANSPORT:-udp}
+sync=${BMX_RTSP_SYNC:-display-resample}
+rtp_buffer=2097152
 export LIBVA_DRIVER_NAME=${LIBVA_DRIVER_NAME:-i965}
-exec mpv --no-config --profile=fast --vo=gpu --gpu-context=drm \
+rmem_max=
+restore_rmem() {
+    if [ -n "$rmem_max" ]; then
+        printf '%s\n' "$rmem_max" > /proc/sys/net/core/rmem_max 2>/dev/null || true
+    fi
+}
+if [ "$transport" = udp ]; then
+    current=$(cat /proc/sys/net/core/rmem_max 2>/dev/null || echo 0)
+    if [ "$current" -lt "$rtp_buffer" ]; then
+        if printf '%s\n' "$rtp_buffer" > /proc/sys/net/core/rmem_max 2>/dev/null; then
+            rmem_max=$current
+            trap restore_rmem EXIT
+            trap 'exit 130' INT
+            trap 'exit 143' TERM
+        else
+            echo "bmx-rtsp: cannot raise net.core.rmem_max above $current; RTP keeps the kernel buffer" >&2
+        fi
+    fi
+    media_opts="rtsp_transport=udp,buffer_size=$rtp_buffer"
+else
+    media_opts="rtsp_transport=tcp"
+fi
+if [ "${BMX_RTSP_STATS:-0}" = 1 ]; then
+    set -- --term-status-msg='cache=${demuxer-cache-duration}s dec-drops=${decoder-frame-drop-count} out-drops=${frame-drop-count} mistimed=${mistimed-frame-count} fps=${estimated-vf-fps}'
+fi
+mpv --no-config --profile=fast --vo=gpu --gpu-context=drm \
     --drm-device=/dev/dri/card0 --hwdec=vaapi --hwdec-software-fallback=no \
     --ao=alsa --osd-level=0 --fs --msg-level=all=warn \
-    --demuxer-thread=yes --demuxer-readahead-secs=10 \
-    --demuxer-max-bytes=256MiB \
-    --demuxer-lavf-o="rtsp_transport=$transport" "$URL"
+    --video-sync="$sync" --cache=yes --cache-pause-initial=yes \
+    --cache-pause-wait=3 --demuxer-thread=yes \
+    --demuxer-readahead-secs=10 --demuxer-max-bytes=256MiB \
+    --demuxer-lavf-o="$media_opts" "$@" "$URL"
 EOF
 chmod +x "$ALPINE_ROOT/usr/local/bin/bmx-check" \
          "$ALPINE_ROOT/usr/local/bin/bmx-shell" \

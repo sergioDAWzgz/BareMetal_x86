@@ -141,9 +141,12 @@ HDA controller: `snd-hda-intel` with the Realtek codec parser is built in (the
 gate exercises the same path with QEMU's generic HDA codec), and `alsa-utils`
 ships `aplay`/`amixer`. `bmx-audio` unmutes the card at boot; `aplay -l` and
 `speaker-test` are the board checks. `bmx-rtsp rtsp://…` plays a network stream
-with a 10 second demuxer readahead, a 256 MiB cache and ALSA audio, while
-`bmx-play` keeps `--no-audio` as the local video benchmark. The `font-terminus`
-package also carries
+over RTP/UDP by default (TCP interleaving stays available through
+`BMX_RTSP_TRANSPORT=tcp`), asks for a 2 MiB RTP socket buffer and raises
+`net.core.rmem_max` for the playback only, primes three seconds of cache before
+the first frame and paces video with the display refresh (`BMX_RTSP_SYNC=audio`
+reverts to the audio clock); `bmx-play` keeps `--no-audio` as the local video
+benchmark. The `font-terminus` package also carries
 6x12, 8x14, 10x18, 10x20, 11x22, 12x24, 14x28 and 16x32, each in normal and
 bold, so a different cell size is one line in `bmx-console-font`. The kernel
 also carries `efifb` and QEMU's `bochs-drm`: the first gives the UEFI installer a

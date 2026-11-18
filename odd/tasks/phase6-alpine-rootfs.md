@@ -352,3 +352,23 @@ cannot play the RTSP stream (no i965/VA-API) or produce sound (no backend), so t
 scripts are verified for syntax and option acceptance; smoothness and audible
 output remain board checks. The roadmap closes the 1080p60 and cfdisk board
 items from this report.
+
+L23: "Perfecto. Ahora necesito dos cambios: que bmx-rtsp lea por defecto los
+paquetes UDP en vez de ser TCP la opción por defecto, y que termines de mejorar
+la transmisión por RTSP: sigue teniendo fallos de transmisión de imagen, aunque
+el audio funciona sin problemas"
+
+Board report: the analog output is audible now, so the board-audio roadmap item
+closes. The RTSP video still fails while the audio runs clean. `bmx-rtsp` now
+defaults to RTP/UDP (`BMX_RTSP_TRANSPORT=tcp` keeps the interleaved path), asks
+for a 2 MiB RTP socket buffer and raises `net.core.rmem_max` for the playback
+only, restores it on exit and warns when procfs is read-only. Video is paced by
+the display (`--video-sync=display-resample`, `BMX_RTSP_SYNC=audio` reverts)
+because with the audio clock as master a jittery ALSA device can drop video
+frames while the sound stays clean. The player primes three seconds of cache
+before the first frame and keeps the 10 s readahead and the 256 MiB cap.
+`BMX_RTSP_STATS=1` prints the cache duration and the decoder/VO drop counters on
+the serial console.
+
+QEMU still cannot play the stream (no i965/VA-API), so the script is verified for
+syntax and option acceptance; smoothness over UDP remains a board check.
