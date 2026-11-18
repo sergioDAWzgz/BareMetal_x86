@@ -320,6 +320,8 @@ Late review advisories applied on top: the gate now pins QEMU's audio backend
 fails if Kconfig drops `SND_HDA_INTEL`, `SND_HDA_CODEC_REALTEK`,
 `SND_HDA_CODEC_ANALOG` or `SND_HDA_CODEC_HDMI`. The README now presents `aplay -l`
 on the board as the pending board check, not as an observed result.
+`bmx-audio` reports `audio mixer ready` only when at least one control was set,
+and the gate asserts the `bmx-audio`/`bmx-rtsp` readiness lines.
 
 L22: "El rendimiento en la prueba bmx-play es bueno. Sin embargo, rechaza muchos
 fotogramas cuando ejecuto la prueba de RTSP del vídeo de Big Buck Bunny en 1080p
@@ -332,11 +334,13 @@ the ALC888S but playback is silent, and the 1080p RTSP stream drops frames. Two
 new helpers:
 
 - `bmx-audio` (inittab wait action before the banner) unmutes Master, PCM,
-  Headphone, Front and Speaker at 80 % and prints `bmx: audio mixer ready`; the
-  card was already probed because proc is mounted before bmx-check.
+  Headphone, Front and Speaker at 80 % and prints `bmx: audio mixer ready` only
+  when at least one control was actually set (`audio mixer missing` otherwise, so
+  the gate assertion can fail); the card was already probed because proc is
+  mounted before bmx-check.
 - `bmx-rtsp` plays `rtsp://` URLs with VA-API and KMS/DRM, `--ao=alsa` so the
   audio clock times the video, `--demuxer-readahead-secs=10` and
-  `--demuxer-max-bytes=128MiB` instead of mpv's 1 s default, and a 1 MiB RTSP
+  `--demuxer-max-bytes=256MiB` instead of mpv's 1 s default, and a 4 MiB RTSP
   socket buffer (`BMX_RTSP_TRANSPORT=udp` switches transport).
 
 `bmx-check` reports both scripts and includes amixer in `audio tools ready`. QEMU

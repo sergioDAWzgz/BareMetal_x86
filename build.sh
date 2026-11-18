@@ -869,22 +869,32 @@ cat > "$ALPINE_ROOT/usr/local/bin/bmx-audio" <<'EOF'
 # The ALC888S playback controls can come up muted, which is why aplay -l lists
 # the card but nothing comes out. Unmute the analog playback controls at a sane
 # level; the card is already probed when this wait action runs.
-[ -d /proc/asound ] || exit 0
-command -v amixer >/dev/null 2>&1 || exit 0
+if [ ! -d /proc/asound ] || ! command -v amixer >/dev/null 2>&1; then
+    echo "bmx: audio mixer missing"
+    exit 0
+fi
+changed=0
 for ctl in Master PCM Headphone Front Speaker; do
-    amixer -c 0 sset "$ctl" 80% unmute >/dev/null 2>&1 || true
+    if amixer -c 0 sset "$ctl" 80% unmute >/dev/null 2>&1; then
+        changed=1
+    fi
 done
-echo "bmx: audio mixer ready"
+if [ "$changed" -eq 1 ]; then
+    echo "bmx: audio mixer ready"
+else
+    echo "bmx: audio mixer missing"
+fi
 EOF
 
 cat > "$ALPINE_ROOT/usr/local/bin/bmx-rtsp" <<'EOF'
 #!/bin/sh
 # Play an RTSP stream on the board: VA-API decode, KMS/DRM output and ALSA
-# audio. mpv buffers one second by default, which is too little for an RTSP
-# stream that arrives in bursts; the demuxer cache here holds ten. Audio is
-# enabled because its clock keeps the video timing stable (bmx-play, which has
-# no audio, is the local benchmark). BMX_RTSP_TRANSPORT=udp switches from the
-# default TCP interleaving.
+# audio. mpv buffers one second of demuxer data by default, which is too little
+# for a stream that arrives in bursts; ten seconds smooths the delivery and the
+# 256 MiB cap covers ten seconds at 200 Mbps. The 4 MiB socket buffer keeps the
+# RTP receive window from falling back to the OS default. Audio is enabled
+# because its clock keeps the video timing stable (bmx-play, which has no audio,
+# is the local benchmark). BMX_RTSP_TRANSPORT=udp switches from TCP interleaving.
 set -e
 URL=${1:-}
 case "$URL" in
@@ -900,8 +910,8 @@ exec mpv --no-config --profile=fast --vo=gpu --gpu-context=drm \
     --drm-device=/dev/dri/card0 --hwdec=vaapi --hwdec-software-fallback=no \
     --ao=alsa --osd-level=0 --fs --msg-level=all=warn \
     --demuxer-thread=yes --demuxer-readahead-secs=10 \
-    --demuxer-max-bytes=128MiB \
-    --demuxer-lavf-o="rtsp_transport=$transport,buffer_size=1048576" \
+    --demuxer-max-bytes=256MiB \
+    --demuxer-lavf-o="rtsp_transport=$transport,buffer_size=4194304" \
     "$URL"
 EOF
 chmod +x "$ALPINE_ROOT/usr/local/bin/bmx-check" \

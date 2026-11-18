@@ -227,11 +227,13 @@ open until the board itself says which one it uses.
       asserts the sound core, the tools and a registered card (QEMU's generic
       HDA codec exercises the same driver stack)
 - [ ] board audio: `aplay -l` lists the ALC888S but playback was silent;
-      `bmx-audio` unmutes Master/PCM/Headphone/Front at boot and `bmx-rtsp` uses
-      `--ao=alsa`, so the board check is `speaker-test` and a stream with sound
+      `bmx-audio` unmutes Master/PCM/Headphone/Front/Speaker at boot and
+      `bmx-rtsp` uses `--ao=alsa`, so the board check is `speaker-test` and a
+      stream with sound
 - [ ] smooth 1080p RTSP: the board drops frames on the Big Buck Bunny stream;
-      `bmx-rtsp` raises the demuxer readahead to 10 s, sets a 1 MiB RTSP buffer
-      and enables ALSA audio as the video clock, and the board must confirm it
+      `bmx-rtsp` raises the demuxer readahead to 10 s, sets a 256 MiB cache and a
+      4 MiB RTSP socket buffer, and enables ALSA audio as the video clock; the
+      board must confirm it
 - [x] re-check the 1080p60 display path: `bmx-play` is smooth on the board (the
       earlier 177/600 drops are gone); the display/render path was the limit, not
       the decode

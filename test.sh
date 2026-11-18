@@ -156,6 +156,8 @@ common_assertions() {
   grep -q 'bmx: audio card ready'               "$log" || fail "$label: the HDA codec did not register a sound card"
   grep -q 'bmx: audio pcm ready'                "$log" || fail "$label: aplay cannot enumerate the sound card"
   grep -q 'bmx: audio mixer ready'              "$log" || fail "$label: the audio mixer setup did not run"
+  grep -q 'bmx: bmx-audio ready'                "$log" || fail "$label: bmx-audio is missing or does not parse"
+  grep -q 'bmx: bmx-rtsp ready'                 "$log" || fail "$label: bmx-rtsp is missing or does not parse"
   grep -q 'bmx: bmx-shell ready'                "$log" || fail "$label: bmx-shell is missing or does not parse"
   grep -q 'bmx: bmx-keymap ready'               "$log" || fail "$label: bmx-keymap is missing or does not parse"
   grep -q 'bmx: bmx-clear ready'                "$log" || fail "$label: bmx-clear is missing or does not parse"
