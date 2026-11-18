@@ -64,7 +64,7 @@ work-unit commits. Gate: `./test.sh` plus an install-and-boot QEMU check.
   implemented, not exercised end to end)
 - T5 QEMU install-and-boot check - done
 - T6 docs - done
-- T7 exercise the manual cfdisk path and the USB boot on the board - pending
+- T7 exercise the manual cfdisk path and the USB boot on the board - done (board cfdisk confirmed)
 - T8 dialog-theme countdown and unconditional default overwrite - inline - done (this commit)
 - T9 install progress screen - inline - done (this commit)
 - T10 automatic reboot countdown after install - inline - done (this commit)

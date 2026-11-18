@@ -479,6 +479,7 @@ cat > "$ALPINE_ROOT/etc/inittab" <<'EOF'
 ::wait:/bin/dmesg -n 5
 ::wait:/usr/local/bin/bmx-console-font
 ::wait:/usr/local/bin/bmx-clear
+::wait:/usr/local/bin/bmx-audio
 ::wait:/usr/local/bin/bmx-banner
 ::once:/usr/local/bin/bmx-net
 ::once:/usr/local/bin/bmx-clock
@@ -584,7 +585,7 @@ if [ -d /proc/asound ]; then
 else
     echo "bmx: audio core missing"
 fi
-if command -v aplay >/dev/null 2>&1; then
+if command -v aplay >/dev/null 2>&1 && command -v amixer >/dev/null 2>&1; then
     echo "bmx: audio tools ready"
 else
     echo "bmx: audio tools missing"
@@ -615,6 +616,7 @@ for script in /usr/local/bin/bmx-shell /usr/local/bin/bmx-keymap \
               /usr/local/bin/bmx-banner /usr/local/bin/bmx-shutdown \
               /usr/local/bin/bmx-net /usr/local/bin/bmx-clock \
               /usr/local/bin/bmx-decode /usr/local/bin/bmx-play \
+              /usr/local/bin/bmx-audio /usr/local/bin/bmx-rtsp \
               /usr/local/sbin/reboot /usr/local/sbin/poweroff \
               /usr/local/sbin/shutdown; do
     name=${script##*/}
@@ -861,6 +863,47 @@ exec mpv --no-config --profile=fast --vo=gpu --gpu-context=drm \
     --drm-device=/dev/dri/card0 --hwdec=vaapi --hwdec-software-fallback=no \
     --osd-level=0 --no-audio --fs --msg-level=all=warn "$CLIP"
 EOF
+
+cat > "$ALPINE_ROOT/usr/local/bin/bmx-audio" <<'EOF'
+#!/bin/sh
+# The ALC888S playback controls can come up muted, which is why aplay -l lists
+# the card but nothing comes out. Unmute the analog playback controls at a sane
+# level; the card is already probed when this wait action runs.
+[ -d /proc/asound ] || exit 0
+command -v amixer >/dev/null 2>&1 || exit 0
+for ctl in Master PCM Headphone Front Speaker; do
+    amixer -c 0 sset "$ctl" 80% unmute >/dev/null 2>&1 || true
+done
+echo "bmx: audio mixer ready"
+EOF
+
+cat > "$ALPINE_ROOT/usr/local/bin/bmx-rtsp" <<'EOF'
+#!/bin/sh
+# Play an RTSP stream on the board: VA-API decode, KMS/DRM output and ALSA
+# audio. mpv buffers one second by default, which is too little for an RTSP
+# stream that arrives in bursts; the demuxer cache here holds ten. Audio is
+# enabled because its clock keeps the video timing stable (bmx-play, which has
+# no audio, is the local benchmark). BMX_RTSP_TRANSPORT=udp switches from the
+# default TCP interleaving.
+set -e
+URL=${1:-}
+case "$URL" in
+rtsp://* | rtsps://*) ;;
+*)
+    echo "bmx-rtsp: usage: bmx-rtsp rtsp://host/path"
+    exit 1
+    ;;
+esac
+transport=${BMX_RTSP_TRANSPORT:-tcp}
+export LIBVA_DRIVER_NAME=${LIBVA_DRIVER_NAME:-i965}
+exec mpv --no-config --profile=fast --vo=gpu --gpu-context=drm \
+    --drm-device=/dev/dri/card0 --hwdec=vaapi --hwdec-software-fallback=no \
+    --ao=alsa --osd-level=0 --fs --msg-level=all=warn \
+    --demuxer-thread=yes --demuxer-readahead-secs=10 \
+    --demuxer-max-bytes=128MiB \
+    --demuxer-lavf-o="rtsp_transport=$transport,buffer_size=1048576" \
+    "$URL"
+EOF
 chmod +x "$ALPINE_ROOT/usr/local/bin/bmx-check" \
          "$ALPINE_ROOT/usr/local/bin/bmx-shell" \
          "$ALPINE_ROOT/usr/local/bin/bmx-keymap" \
@@ -873,6 +916,8 @@ chmod +x "$ALPINE_ROOT/usr/local/bin/bmx-check" \
          "$ALPINE_ROOT/usr/local/bin/bmx-mouse" \
          "$ALPINE_ROOT/usr/local/bin/bmx-decode" \
          "$ALPINE_ROOT/usr/local/bin/bmx-play" \
+         "$ALPINE_ROOT/usr/local/bin/bmx-audio" \
+         "$ALPINE_ROOT/usr/local/bin/bmx-rtsp" \
          "$ALPINE_ROOT/usr/local/sbin/reboot" \
          "$ALPINE_ROOT/usr/local/sbin/poweroff" \
          "$ALPINE_ROOT/usr/local/sbin/shutdown"

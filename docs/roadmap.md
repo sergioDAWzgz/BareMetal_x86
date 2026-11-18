@@ -226,10 +226,15 @@ open until the board itself says which one it uses.
       Realtek parser built in; `alsa-utils` ships `aplay`/`amixer`, and the gate
       asserts the sound core, the tools and a registered card (QEMU's generic
       HDA codec exercises the same driver stack)
-- [ ] board audio: `aplay -l` lists the ALC888S and mpv plays through ALSA
-- [ ] re-check the 1080p60 display path: `bmx-play` now uses `--profile=fast` and
-      refuses the software fallback; the first run dropped 177 of 600 frames, so
-      the display/render path is the limit, not the decode
+- [ ] board audio: `aplay -l` lists the ALC888S but playback was silent;
+      `bmx-audio` unmutes Master/PCM/Headphone/Front at boot and `bmx-rtsp` uses
+      `--ao=alsa`, so the board check is `speaker-test` and a stream with sound
+- [ ] smooth 1080p RTSP: the board drops frames on the Big Buck Bunny stream;
+      `bmx-rtsp` raises the demuxer readahead to 10 s, sets a 1 MiB RTSP buffer
+      and enables ALSA audio as the video clock, and the board must confirm it
+- [x] re-check the 1080p60 display path: `bmx-play` is smooth on the board (the
+      earlier 177/600 drops are gone); the display/render path was the limit, not
+      the decode
 
 The first boot on the board used the UEFI path and reached the exception demo:
 ACPI found its ten tables, PCI enumerated fifteen devices and the PIT ticked. It
@@ -293,10 +298,10 @@ not only sampled by hand.
       boot; the stock image keeps the US default
 - [x] `installer/test-iso.sh` installs into a blank 2 GiB QEMU disk and boots the
       result to OpenRC through OVMF
-- [ ] exercise the manual `cfdisk` path on the board: the QEMU equivalent is
-      covered by `BMX_TEST_LAYOUT=manual`, which seeds the table cfdisk would
-      produce, opens and leaves cfdisk, and then runs the installer's validation,
-      PARTUUID patch, format and boot
+- [x] exercise the manual `cfdisk` path on the board: works on the board (user
+      report); the QEMU equivalent is `BMX_TEST_LAYOUT=manual`, which seeds the
+      table cfdisk would produce, opens and leaves cfdisk, and then runs the
+      installer's validation, PARTUUID patch, format and boot
 - [x] a BIOS boot path for the installer ISO (the installed OS already has both):
       isolinux loads the same kernel through an El Torito entry, and the
       isohybrid MBR plus the GPT EFI entry make a raw-written USB bootable both
