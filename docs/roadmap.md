@@ -231,9 +231,11 @@ open until the board itself says which one it uses.
       `bmx-rtsp` uses `--ao=alsa`; the board confirms audible output through
       `speaker-test` and a stream with sound
 - [ ] smooth 1080p RTSP: the board still drops video frames while the audio
-      stays clean; `bmx-rtsp` now uses RTP/UDP by default, asks for a 2 MiB RTP
-      socket buffer with a session-scoped `rmem_max` raise, paces video with the
-      display refresh and primes three seconds of cache; the board must confirm
+      stays clean, and UDP shows occasional artifacts; `bmx-rtsp` uses RTP/UDP
+      by default, asks for a 4 MiB RTP socket buffer with a session-scoped
+      `rmem_max` raise, paces video with the display refresh, primes three
+      seconds of cache; TCP remains the lossless transport when artifacts must
+      be zero
 - [x] re-check the 1080p60 display path: `bmx-play` is smooth on the board (the
       earlier 177/600 drops are gone); the display/render path was the limit, not
       the decode

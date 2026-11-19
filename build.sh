@@ -627,7 +627,7 @@ for script in /usr/local/bin/bmx-shell /usr/local/bin/bmx-keymap \
     fi
 done
 if grep -q 'BMX_RTSP_TRANSPORT:-udp' /usr/local/bin/bmx-rtsp &&
-   grep -q 'rtp_buffer=2097152' /usr/local/bin/bmx-rtsp; then
+   grep -q 'rtp_buffer=4194304' /usr/local/bin/bmx-rtsp; then
     echo "bmx: rtsp udp default ready"
 else
     echo "bmx: rtsp udp default missing"
@@ -915,7 +915,7 @@ cat > "$ALPINE_ROOT/usr/local/bin/bmx-rtsp" <<'EOF'
 #
 # The kernel clamps SO_RCVBUF to net.core.rmem_max (208 KiB by default), so a
 # burst of RTP packets overruns the socket and FFmpeg loses them before the
-# jitter buffer sees them. The RTP handle asks for 2 MiB; the script raises the
+# jitter buffer sees them. The RTP handle asks for 4 MiB; the script raises the
 # ceiling for this playback only, restores it on exit, and warns when procfs is
 # read-only so a clamped buffer is not mistaken for the tuned one.
 #
@@ -937,7 +937,7 @@ udp | udp_multicast) udp_media=1 ;;
 *) udp_media= ;;
 esac
 sync=${BMX_RTSP_SYNC:-display-resample}
-rtp_buffer=2097152
+rtp_buffer=4194304
 cache_prime=3
 export LIBVA_DRIVER_NAME=${LIBVA_DRIVER_NAME:-i965}
 saved_rmem_max=
