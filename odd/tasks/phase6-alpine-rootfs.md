@@ -452,3 +452,10 @@ visible freeze, while a source seek or loop is still followed within about two
 seconds. Lower it to 1 for the lowest latency or raise it to 3-5 for a lossy
 link; TCP remains the lossless path for packet-loss artifacts. The loop reload
 still has an inherent reconnect gap when the server rejects the seek with 405.
+
+L30: "BMX_RTSP_STATS=1 no imprime los datos que dices"
+
+The stats mode was silent because `--msg-level=all=warn` suppresses mpv's
+terminal status line; the status level sits above info. `BMX_RTSP_STATS=1` now
+also sets `--msg-level=all=status`, so the cache/drop line prints while normal
+playback stays quiet at warn.

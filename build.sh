@@ -918,6 +918,8 @@ cat > "$ALPINE_ROOT/usr/local/bin/bmx-rtsp" <<'EOF'
 # visible freeze. After an underrun the player resumes with one second of data,
 # which keeps the pause short. The socket buffer below absorbs bursts that would
 # otherwise become packet loss, and TCP is the lossless transport.
+# BMX_RTSP_STATS=1 raises the log level to "status" (warn would hide the
+# terminal status line) and prints the cache and drop counters every second.
 #
 # The kernel clamps SO_RCVBUF to net.core.rmem_max (208 KiB by default), so a
 # burst of RTP packets overruns the socket and FFmpeg loses them before the
@@ -971,10 +973,11 @@ else
     media_opts="rtsp_transport=$transport"
 fi
 player=
+msg_level=warn
 play() {
     mpv --no-config --profile=fast --vo=gpu --gpu-context=drm \
         --drm-device=/dev/dri/card0 --hwdec=auto \
-        --ao=alsa --osd-level=0 --fs --msg-level=all=warn \
+        --ao=alsa --osd-level=0 --fs --msg-level=all="$msg_level" \
         --video-sync="$sync" --loop-playlist=inf --cache=yes \
         --cache-secs="$cache_secs" --cache-pause-wait=1 \
         --demuxer-thread=yes --demuxer-readahead-secs="$cache_secs" \
@@ -989,6 +992,7 @@ forward_stop() {
 }
 trap forward_stop INT TERM HUP
 if [ "${BMX_RTSP_STATS:-0}" = 1 ]; then
+    msg_level=status
     play --term-status-msg='cache=${demuxer-cache-duration}s dec-drops=${decoder-frame-drop-count} out-drops=${frame-drop-count} mistimed=${mistimed-frame-count} fps=${estimated-vf-fps}'
 else
     play
