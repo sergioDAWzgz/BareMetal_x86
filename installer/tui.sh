@@ -295,6 +295,11 @@ while :; do
     keyboard) choose_keymap ;;
     disk) choose_disk ;;
     manual) choose_manual ;;
-    quit | "") exit 0 ;;
+    quit)
+        # Leaving the installer must not drop to a root shell on the live
+        # image; reboot like the finished-install screens do.
+        sync
+        reboot -f
+        ;;
     esac
 done

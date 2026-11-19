@@ -20,6 +20,10 @@ MEDIA=${BMX_TEST_MEDIA:-cd}
 BOOT=${BMX_TEST_BOOT:-uefi}
 LAYOUT=${BMX_TEST_LAYOUT:-auto}
 KEEP=${BMX_TEST_KEEP:-0}
+# BMX_TEST_QUIT=1 boots the ISO, walks the menu to Salir and requires the box to
+# reboot. -no-reboot turns that reboot into a QEMU exit, so a build that falls
+# back to the shell keeps QEMU alive and fails the test.
+QUIT=${BMX_TEST_QUIT:-0}
 # The QEMU human monitor has no authentication. Give each run a private
 # directory (mktemp creates it 0700), and only open the monitor for the manual
 # layout, which is the only one that drives the TUI.
@@ -42,6 +46,13 @@ case "$LAYOUT" in
 auto | manual) ;;
 *)
   echo "FAIL: BMX_TEST_LAYOUT must be auto or manual" >&2
+  exit 1
+  ;;
+esac
+case "$QUIT" in
+0 | 1) ;;
+*)
+  echo "FAIL: BMX_TEST_QUIT must be 0 or 1" >&2
   exit 1
   ;;
 esac
@@ -114,7 +125,7 @@ if [ "$BOOT" = bios ] && [ "$MEDIA" = cd ]; then
   BOOTARGS=(-boot order=d)
 fi
 MONARGS=()
-if [ "$LAYOUT" = manual ]; then
+if [ "$LAYOUT" = manual ] || [ "$QUIT" = 1 ]; then
   MONARGS=(-monitor "unix:$MON,server,nowait")
 fi
 
@@ -158,6 +169,23 @@ drive_manual() {
   key ret 1.2
 }
 
+# The countdown gives way to the menu on any key, and four downs reach Salir.
+# A correct build reboots the box; -no-reboot turns that into a QEMU exit, so a
+# build that falls back to the shell leaves QEMU alive and fails the test.
+drive_quit() {
+  for _ in $(seq 1 240); do
+    grep -q 'BMX-INSTALLER: ISO .* mounted' "$INSTALL_LOG" 2>/dev/null && break
+    sleep 0.5
+  done
+  sleep 2
+  key a 1.5
+  key down
+  key down
+  key down
+  key down
+  key ret 1.5
+}
+
 qemu-system-x86_64 -machine q35 -cpu qemu64 -m 1024 \
   "${FIRMWARE[@]}" \
   -drive file="$TARGET",format=raw,if=none,id=target \
@@ -166,6 +194,26 @@ qemu-system-x86_64 -machine q35 -cpu qemu64 -m 1024 \
   -display none -serial "file:$INSTALL_LOG" -no-reboot \
   >/dev/null 2>&1 &
 pid=$!
+if [ "$QUIT" = 1 ]; then
+  drive_quit &
+  drive_pid=$!
+  for _ in $(seq 1 240); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.5
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    wait "$drive_pid" 2>/dev/null || true
+    echo "FAIL: Salir returned to the shell instead of rebooting" >&2
+    tail -20 "$INSTALL_LOG" >&2
+    exit 1
+  fi
+  wait "$drive_pid" 2>/dev/null || true
+  echo "=== install log ==="
+  grep -a 'BMX-INSTALLER' "$INSTALL_LOG" || true
+  echo "PASS: Salir reboots the installer"
+  exit 0
+fi
 if [ "$LAYOUT" = manual ]; then
   drive_manual &
   drive_pid=$!
