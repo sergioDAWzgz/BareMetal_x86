@@ -626,6 +626,12 @@ for script in /usr/local/bin/bmx-shell /usr/local/bin/bmx-keymap \
         echo "bmx: $name broken"
     fi
 done
+if grep -q 'BMX_RTSP_TRANSPORT:-udp' /usr/local/bin/bmx-rtsp &&
+   grep -q 'rtp_buffer=2097152' /usr/local/bin/bmx-rtsp; then
+    echo "bmx: rtsp udp default ready"
+else
+    echo "bmx: rtsp udp default missing"
+fi
 EOF
 
 cat > "$ALPINE_ROOT/usr/local/bin/bmx-mouse" <<'EOF'
@@ -903,17 +909,21 @@ cat > "$ALPINE_ROOT/usr/local/bin/bmx-rtsp" <<'EOF'
 # mpv's network cache is enabled for network streams, and --cache-secs defaults
 # to a very high value, so --demuxer-max-bytes is what bounds the prefetch.
 # cache-pause-initial waits for three seconds before the first frame, so the
-# startup burst does not cost frames; cache-pause (on by default) pauses
-# playback if the cache ever runs dry instead of letting video fall behind.
+# startup burst does not cost frames; the same wait is the rebuffer threshold
+# after an underrun, and cache-pause (on by default) pauses playback instead of
+# letting video fall behind.
 #
 # The kernel clamps SO_RCVBUF to net.core.rmem_max (208 KiB by default), so a
 # burst of RTP packets overruns the socket and FFmpeg loses them before the
 # jitter buffer sees them. The RTP handle asks for 2 MiB; the script raises the
 # ceiling for this playback only, restores it on exit, and warns when procfs is
 # read-only so a clamped buffer is not mistaken for the tuned one.
+#
+# The shell owns the player so it can restore the ceiling: signals are forwarded
+# to mpv and the value is put back on normal exit, INT, TERM or HUP. A SIGKILL is
+# not catchable, so the raised ceiling then lasts until the next reboot.
 set -e
 URL=${1:-}
-set --
 case "$URL" in
 rtsp://* | rtsps://*) ;;
 *)
@@ -922,41 +932,62 @@ rtsp://* | rtsps://*) ;;
     ;;
 esac
 transport=${BMX_RTSP_TRANSPORT:-udp}
+case "$transport" in
+udp | udp_multicast) udp_media=1 ;;
+*) udp_media= ;;
+esac
 sync=${BMX_RTSP_SYNC:-display-resample}
 rtp_buffer=2097152
+cache_prime=3
 export LIBVA_DRIVER_NAME=${LIBVA_DRIVER_NAME:-i965}
-rmem_max=
+saved_rmem_max=
 restore_rmem() {
-    if [ -n "$rmem_max" ]; then
-        printf '%s\n' "$rmem_max" > /proc/sys/net/core/rmem_max 2>/dev/null || true
+    now=$(cat /proc/sys/net/core/rmem_max 2>/dev/null) || return 0
+    if [ "$now" = "$rtp_buffer" ]; then
+        printf '%s\n' "$saved_rmem_max" > /proc/sys/net/core/rmem_max 2>/dev/null || true
     fi
 }
-if [ "$transport" = udp ]; then
-    current=$(cat /proc/sys/net/core/rmem_max 2>/dev/null || echo 0)
-    if [ "$current" -lt "$rtp_buffer" ]; then
-        if printf '%s\n' "$rtp_buffer" > /proc/sys/net/core/rmem_max 2>/dev/null; then
-            rmem_max=$current
-            trap restore_rmem EXIT
-            trap 'exit 130' INT
-            trap 'exit 143' TERM
-        else
+if [ -n "$udp_media" ]; then
+    current=$(cat /proc/sys/net/core/rmem_max 2>/dev/null) || current=
+    if [ -z "$current" ]; then
+        echo "bmx-rtsp: net.core.rmem_max is not readable; RTP keeps the kernel buffer" >&2
+    elif [ "$current" -lt "$rtp_buffer" ] 2>/dev/null; then
+        saved_rmem_max=$current
+        trap restore_rmem EXIT
+        if ! printf '%s\n' "$rtp_buffer" > /proc/sys/net/core/rmem_max 2>/dev/null; then
             echo "bmx-rtsp: cannot raise net.core.rmem_max above $current; RTP keeps the kernel buffer" >&2
         fi
     fi
-    media_opts="rtsp_transport=udp,buffer_size=$rtp_buffer"
+    media_opts="rtsp_transport=$transport,buffer_size=$rtp_buffer"
 else
-    media_opts="rtsp_transport=tcp"
+    media_opts="rtsp_transport=$transport"
 fi
+player=
+play() {
+    mpv --no-config --profile=fast --vo=gpu --gpu-context=drm \
+        --drm-device=/dev/dri/card0 --hwdec=vaapi --hwdec-software-fallback=no \
+        --ao=alsa --osd-level=0 --fs --msg-level=all=warn \
+        --video-sync="$sync" --cache=yes --cache-pause-initial=yes \
+        --cache-pause-wait="$cache_prime" --demuxer-thread=yes \
+        --demuxer-readahead-secs=10 --demuxer-max-bytes=256MiB \
+        --demuxer-lavf-o="$media_opts" "$@" "$URL" &
+    player=$!
+}
+forward_stop() {
+    if [ -n "$player" ]; then
+        kill -TERM "$player" 2>/dev/null || true
+    fi
+}
+trap forward_stop INT TERM HUP
 if [ "${BMX_RTSP_STATS:-0}" = 1 ]; then
-    set -- --term-status-msg='cache=${demuxer-cache-duration}s dec-drops=${decoder-frame-drop-count} out-drops=${frame-drop-count} mistimed=${mistimed-frame-count} fps=${estimated-vf-fps}'
+    play --term-status-msg='cache=${demuxer-cache-duration}s dec-drops=${decoder-frame-drop-count} out-drops=${frame-drop-count} mistimed=${mistimed-frame-count} fps=${estimated-vf-fps}'
+else
+    play
 fi
-mpv --no-config --profile=fast --vo=gpu --gpu-context=drm \
-    --drm-device=/dev/dri/card0 --hwdec=vaapi --hwdec-software-fallback=no \
-    --ao=alsa --osd-level=0 --fs --msg-level=all=warn \
-    --video-sync="$sync" --cache=yes --cache-pause-initial=yes \
-    --cache-pause-wait=3 --demuxer-thread=yes \
-    --demuxer-readahead-secs=10 --demuxer-max-bytes=256MiB \
-    --demuxer-lavf-o="$media_opts" "$@" "$URL"
+status=0
+wait "$player" || status=$?
+trap - INT TERM HUP
+exit "$status"
 EOF
 chmod +x "$ALPINE_ROOT/usr/local/bin/bmx-check" \
          "$ALPINE_ROOT/usr/local/bin/bmx-shell" \

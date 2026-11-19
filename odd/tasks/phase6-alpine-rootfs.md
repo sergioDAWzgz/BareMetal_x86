@@ -345,7 +345,9 @@ new helpers:
   kernel: FFmpeg applies its `buffer_size` only to the UDP handles, and Linux
   clamps `SO_RCVBUF` to `net.core.rmem_max` (208 KiB by default), so the earlier
   4 MiB request and the `rmem_max` raise were removed rather than documented as
-  a fix they did not deliver.
+  a fix they did not deliver. L23 supersedes this socket-buffer decision: with
+  UDP as the default, the 2 MiB request and the session-scoped `rmem_max` raise
+  do take effect.
 
 `bmx-check` reports both scripts and includes amixer in `audio tools ready`. QEMU
 cannot play the RTSP stream (no i965/VA-API) or produce sound (no backend), so the
@@ -360,15 +362,20 @@ el audio funciona sin problemas"
 
 Board report: the analog output is audible now, so the board-audio roadmap item
 closes. The RTSP video still fails while the audio runs clean. `bmx-rtsp` now
-defaults to RTP/UDP (`BMX_RTSP_TRANSPORT=tcp` keeps the interleaved path), asks
-for a 2 MiB RTP socket buffer and raises `net.core.rmem_max` for the playback
-only, restores it on exit and warns when procfs is read-only. Video is paced by
-the display (`--video-sync=display-resample`, `BMX_RTSP_SYNC=audio` reverts)
-because with the audio clock as master a jittery ALSA device can drop video
-frames while the sound stays clean. The player primes three seconds of cache
-before the first frame and keeps the 10 s readahead and the 256 MiB cap.
-`BMX_RTSP_STATS=1` prints the cache duration and the decoder/VO drop counters on
-the serial console.
+defaults to RTP/UDP (`BMX_RTSP_TRANSPORT=tcp` keeps the interleaved path, and
+other FFmpeg transports such as `udp_multicast` or `http` pass through
+unchanged), asks for a 2 MiB RTP socket buffer and raises `net.core.rmem_max`
+for the playback only, restores it on a normal exit, INT, TERM or HUP and warns
+when procfs is read-only; a SIGKILL cannot be caught, so the raised ceiling then
+lasts until the next reboot. Video is paced by the display
+(`--video-sync=display-resample`, `BMX_RTSP_SYNC=audio` reverts) because with
+the audio clock as master a jittery ALSA device can drop video frames while the
+sound stays clean. The player primes three seconds of cache before the first
+frame (the same value is the rebuffer threshold after an underrun) and keeps the
+10 s readahead and the 256 MiB cap. `BMX_RTSP_STATS=1` prints the cache duration
+and the decoder/output drop counters on the serial console.
 
-QEMU still cannot play the stream (no i965/VA-API), so the script is verified for
-syntax and option acceptance; smoothness over UDP remains a board check.
+QEMU still cannot play the stream (no i965/VA-API), so the gate proves the
+script parses and that the shipped helper still carries the UDP default and the
+2 MiB buffer (`bmx: rtsp udp default ready`); it never runs mpv, so option
+acceptance and smoothness over UDP remain board checks.
