@@ -395,3 +395,13 @@ RTSP session when the server allows seeking and no longer exits. A live camera
 that never ends sees no change. The gate marker now asserts the TCP default, the
 loop and the UDP buffer together (`bmx: rtsp defaults ready`); playback and loop
 stability remain board checks.
+
+L25: "Un cambio más: he visto que con las opciones --profile=fast y --hwdec=auto
+no hay pérdida de frames. ¿Podrías hacer que estuvieran por defecto en los
+streams, en el comando, sin tener que añadirlos específicamente?"
+
+The board found that `--profile=fast` with `--hwdec=auto` loses no frames.
+`bmx-rtsp` already carried `--profile=fast`; it now uses `--hwdec=auto` instead
+of `--hwdec=vaapi` plus `--hwdec-software-fallback=no`, so mpv picks the VA-API
+path and keeps the three-frame software fallback available. The gate marker also
+pins the fast profile and the auto hwdec (`bmx: rtsp defaults ready`).

@@ -628,6 +628,8 @@ for script in /usr/local/bin/bmx-shell /usr/local/bin/bmx-keymap \
 done
 if grep -q 'BMX_RTSP_TRANSPORT:-tcp' /usr/local/bin/bmx-rtsp &&
    grep -q 'loop-file=inf' /usr/local/bin/bmx-rtsp &&
+   grep -q 'profile=fast' /usr/local/bin/bmx-rtsp &&
+   grep -q 'hwdec=auto' /usr/local/bin/bmx-rtsp &&
    grep -q 'rtp_buffer=4194304' /usr/local/bin/bmx-rtsp; then
     echo "bmx: rtsp defaults ready"
 else
@@ -895,7 +897,8 @@ EOF
 
 cat > "$ALPINE_ROOT/usr/local/bin/bmx-rtsp" <<'EOF'
 #!/bin/sh
-# Play an RTSP stream on the board: VA-API decode, KMS/DRM output and ALSA
+# Play an RTSP stream on the board: hardware decode (auto; VA-API via i965),
+# KMS/DRM output and ALSA
 # audio. TCP interleaving is the default because it cannot lose packets, which
 # is what shows up as image artifacts on a lossy UDP path;
 # BMX_RTSP_TRANSPORT=udp switches to RTP/UDP for lower latency, with the larger
@@ -967,7 +970,7 @@ fi
 player=
 play() {
     mpv --no-config --profile=fast --vo=gpu --gpu-context=drm \
-        --drm-device=/dev/dri/card0 --hwdec=vaapi --hwdec-software-fallback=no \
+        --drm-device=/dev/dri/card0 --hwdec=auto \
         --ao=alsa --osd-level=0 --fs --msg-level=all=warn \
         --video-sync="$sync" --loop-file=inf --cache=yes \
         --cache-pause-initial=yes \
