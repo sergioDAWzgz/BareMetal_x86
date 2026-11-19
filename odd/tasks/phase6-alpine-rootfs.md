@@ -428,3 +428,18 @@ reloads the URL at EOF and reopens the session; keeping the original session is
 not possible when the server refuses the seek. A server that loops without
 ending the stream never triggers the reload. The gate marker checks the playlist
 loop instead of `--loop-file`/`--force-seekable`.
+
+L28: "Dos cosas: ¿se puede hacer algo más para reducir al absoluto mínimo los
+paquetes perdidos por UDP? ¿se puede reproducir el stream de tal manera que el
+cliente siempre reproduzca el timestamp correcto, en vez de quedarse guardado
+en caché con el actual método de loop? Es decir, si el vídeo en VLC se cambia
+al minuto 01:17, incluido repetido, que la reproducción se mueva a ese minuto.
+Todo con el mínimo retardo de la reproducción posible"
+
+The demuxer cache is now one second (`BMX_RTSP_CACHE_SECS` raises it), with no
+initial pause, so playback follows the server's current position within about a
+second and a source seek or loop is not delayed by a large local backlog. The
+4 MiB RTP socket buffer and the session-scoped `rmem_max` raise stay as the UDP
+burst-absorbing layer; a larger `BMX_RTSP_CACHE_SECS` trades latency for
+resilience on a lossy link, and TCP remains the only lossless transport. The
+gate marker also pins the one-second cache default.

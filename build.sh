@@ -630,6 +630,7 @@ if grep -q 'BMX_RTSP_TRANSPORT:-udp' /usr/local/bin/bmx-rtsp &&
    grep -q 'loop-playlist=inf' /usr/local/bin/bmx-rtsp &&
    grep -q 'profile=fast' /usr/local/bin/bmx-rtsp &&
    grep -q 'hwdec=auto' /usr/local/bin/bmx-rtsp &&
+   grep -q 'BMX_RTSP_CACHE_SECS:-1' /usr/local/bin/bmx-rtsp &&
    grep -q 'rtp_buffer=4194304' /usr/local/bin/bmx-rtsp; then
     echo "bmx: rtsp defaults ready"
 else
@@ -911,12 +912,11 @@ cat > "$ALPINE_ROOT/usr/local/bin/bmx-rtsp" <<'EOF'
 # the display refresh and falls back to the audio clock if the display timing is
 # unusable. BMX_RTSP_SYNC=audio restores the old behaviour.
 #
-# mpv's network cache is enabled for network streams, and --cache-secs defaults
-# to a very high value, so --demuxer-max-bytes is what bounds the prefetch.
-# cache-pause-initial waits for three seconds before the first frame, so the
-# startup burst does not cost frames; the same wait is the rebuffer threshold
-# after an underrun, and cache-pause (on by default) pauses playback instead of
-# letting video fall behind.
+# The demuxer cache is capped at one second (BMX_RTSP_CACHE_SECS raises it), so
+# playback stays close to the server's current position and follows a source
+# seek or loop with about that much delay. A larger cache trades latency for
+# resilience on a lossy link; the socket buffer below absorbs bursts that would
+# otherwise become packet loss, and TCP is the lossless transport.
 #
 # The kernel clamps SO_RCVBUF to net.core.rmem_max (208 KiB by default), so a
 # burst of RTP packets overruns the socket and FFmpeg loses them before the
@@ -942,8 +942,10 @@ udp | udp_multicast) udp_media=1 ;;
 *) udp_media= ;;
 esac
 sync=${BMX_RTSP_SYNC:-display-resample}
+cache_secs=${BMX_RTSP_CACHE_SECS:-1}
+case "$cache_secs" in '' | *[!0-9]*) cache_secs=1 ;; esac
+[ "$cache_secs" -ge 1 ] 2>/dev/null || cache_secs=1
 rtp_buffer=4194304
-cache_prime=3
 export LIBVA_DRIVER_NAME=${LIBVA_DRIVER_NAME:-i965}
 saved_rmem_max=
 restore_rmem() {
@@ -973,9 +975,9 @@ play() {
         --drm-device=/dev/dri/card0 --hwdec=auto \
         --ao=alsa --osd-level=0 --fs --msg-level=all=warn \
         --video-sync="$sync" --loop-playlist=inf --cache=yes \
-        --cache-pause-initial=yes \
-        --cache-pause-wait="$cache_prime" --demuxer-thread=yes \
-        --demuxer-readahead-secs=10 --demuxer-max-bytes=256MiB \
+        --cache-secs="$cache_secs" --cache-pause-wait="$cache_secs" \
+        --demuxer-thread=yes --demuxer-readahead-secs="$cache_secs" \
+        --demuxer-max-bytes=64MiB \
         --demuxer-lavf-o="$media_opts" "$@" "$URL" &
     player=$!
 }
