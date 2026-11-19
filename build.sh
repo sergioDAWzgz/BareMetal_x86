@@ -631,6 +631,7 @@ if grep -q 'BMX_RTSP_TRANSPORT:-udp' /usr/local/bin/bmx-rtsp &&
    grep -q 'profile=fast' /usr/local/bin/bmx-rtsp &&
    grep -q 'hwdec=auto' /usr/local/bin/bmx-rtsp &&
    grep -q 'BMX_RTSP_CACHE_SECS:-2' /usr/local/bin/bmx-rtsp &&
+   grep -q 'BMX_RTSP_SYNC:-audio' /usr/local/bin/bmx-rtsp &&
    grep -q 'rtp_buffer=4194304' /usr/local/bin/bmx-rtsp; then
     echo "bmx: rtsp defaults ready"
 else
@@ -906,11 +907,10 @@ cat > "$ALPINE_ROOT/usr/local/bin/bmx-rtsp" <<'EOF'
 # the RTSP seek with 405, so the client cannot keep the session and must reopen
 # it. A server that loops without ending the stream never triggers the reload.
 #
-# Video is paced by the display instead of the audio clock: with the audio clock
-# as master, a jittery ALSA device can make mpv drop video frames continuously
-# while the sound itself stays clean. display-resample resamples the audio to
-# the display refresh and falls back to the audio clock if the display timing is
-# unusable. BMX_RTSP_SYNC=audio restores the old behaviour.
+# Video follows the audio clock by default: the board reported 12 output drops
+# and 15 mistimed frames with display-resample on a 24p stream, and none with
+# the audio clock. BMX_RTSP_SYNC=display-resample restores the display-paced
+# mode, which resamples audio to the refresh and falls back to the audio clock.
 #
 # The demuxer cache is capped at two seconds (BMX_RTSP_CACHE_SECS sets it: 1 for
 # the lowest latency, 3-5 for a lossy link), so playback stays close to the
@@ -944,7 +944,7 @@ case "$transport" in
 udp | udp_multicast) udp_media=1 ;;
 *) udp_media= ;;
 esac
-sync=${BMX_RTSP_SYNC:-display-resample}
+sync=${BMX_RTSP_SYNC:-audio}
 cache_secs=${BMX_RTSP_CACHE_SECS:-2}
 case "$cache_secs" in '' | *[!0-9]*) cache_secs=1 ;; esac
 [ "$cache_secs" -ge 1 ] 2>/dev/null || cache_secs=1

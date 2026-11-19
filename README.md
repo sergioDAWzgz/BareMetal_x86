@@ -147,10 +147,11 @@ path when image integrity matters more than latency. It decodes with
 `--profile=fast --hwdec=auto` (software fallback allowed), keeps a two-second
 demuxer cache (`BMX_RTSP_CACHE_SECS`: 1 for lowest latency, 3-5 for a lossy
 link) with a one-second rebuffer, so playback stays close to the server's
-current position while network gaps are absorbed, paces video with the display
-refresh (`BMX_RTSP_SYNC=audio` reverts) and loops at EOF by reloading the URL
-with `--loop-playlist=inf` instead of exiting, because the server rejects RTSP
-seeks; `bmx-play` keeps `--no-audio` as the local video benchmark. The `font-terminus` package also carries
+current position while network gaps are absorbed, paces video with the audio
+clock (`BMX_RTSP_SYNC=display-resample` selects display pacing) and loops at EOF
+by reloading the URL with `--loop-playlist=inf` instead of exiting, because the
+server rejects RTSP seeks; `bmx-play` keeps `--no-audio` as the local video
+benchmark. The `font-terminus` package also carries
 6x12, 8x14, 10x18, 10x20, 11x22, 12x24, 14x28 and 16x32, each in normal and
 bold, so a different cell size is one line in `bmx-console-font`. The kernel
 also carries `efifb` and QEMU's `bochs-drm`: the first gives the UEFI installer a

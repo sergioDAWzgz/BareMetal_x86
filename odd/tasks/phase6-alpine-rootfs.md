@@ -459,3 +459,13 @@ The stats mode was silent because `--msg-level=all=warn` suppresses mpv's
 terminal status line; the status level sits above info. `BMX_RTSP_STATS=1` now
 also sets `--msg-level=all=status`, so the cache/drop line prints while normal
 playback stays quiet at warn.
+
+L31: board stats with `BMX_RTSP_SYNC=audio`: "cache=2s dec-drops=0 out-drops=0
+mistimed=(unavailable) fps=24"
+
+The A/B settled it: display-resample produced 12 output drops and 15 mistimed
+frames on the 24p stream; the audio clock produced none (mistimed is only
+reported by the display-sync modes, so it is unavailable in audio mode). The
+default sync is now audio; `BMX_RTSP_SYNC=display-resample` restores the old
+mode. The 24p stream on a 60 Hz output still has 3:2 cadence, which no drop
+counter shows; a native 24 Hz mode is the next step if the panel supports it.
