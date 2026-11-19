@@ -630,7 +630,7 @@ if grep -q 'BMX_RTSP_TRANSPORT:-udp' /usr/local/bin/bmx-rtsp &&
    grep -q 'loop-playlist=inf' /usr/local/bin/bmx-rtsp &&
    grep -q 'profile=fast' /usr/local/bin/bmx-rtsp &&
    grep -q 'hwdec=auto' /usr/local/bin/bmx-rtsp &&
-   grep -q 'BMX_RTSP_CACHE_SECS:-1' /usr/local/bin/bmx-rtsp &&
+   grep -q 'BMX_RTSP_CACHE_SECS:-2' /usr/local/bin/bmx-rtsp &&
    grep -q 'rtp_buffer=4194304' /usr/local/bin/bmx-rtsp; then
     echo "bmx: rtsp defaults ready"
 else
@@ -912,10 +912,11 @@ cat > "$ALPINE_ROOT/usr/local/bin/bmx-rtsp" <<'EOF'
 # the display refresh and falls back to the audio clock if the display timing is
 # unusable. BMX_RTSP_SYNC=audio restores the old behaviour.
 #
-# The demuxer cache is capped at one second (BMX_RTSP_CACHE_SECS raises it), so
-# playback stays close to the server's current position and follows a source
-# seek or loop with about that much delay. A larger cache trades latency for
-# resilience on a lossy link; the socket buffer below absorbs bursts that would
+# The demuxer cache is capped at two seconds (BMX_RTSP_CACHE_SECS sets it: 1 for
+# the lowest latency, 3-5 for a lossy link), so playback stays close to the
+# server's current position while a network gap is absorbed before it becomes a
+# visible freeze. After an underrun the player resumes with one second of data,
+# which keeps the pause short. The socket buffer below absorbs bursts that would
 # otherwise become packet loss, and TCP is the lossless transport.
 #
 # The kernel clamps SO_RCVBUF to net.core.rmem_max (208 KiB by default), so a
@@ -942,7 +943,7 @@ udp | udp_multicast) udp_media=1 ;;
 *) udp_media= ;;
 esac
 sync=${BMX_RTSP_SYNC:-display-resample}
-cache_secs=${BMX_RTSP_CACHE_SECS:-1}
+cache_secs=${BMX_RTSP_CACHE_SECS:-2}
 case "$cache_secs" in '' | *[!0-9]*) cache_secs=1 ;; esac
 [ "$cache_secs" -ge 1 ] 2>/dev/null || cache_secs=1
 rtp_buffer=4194304
@@ -975,7 +976,7 @@ play() {
         --drm-device=/dev/dri/card0 --hwdec=auto \
         --ao=alsa --osd-level=0 --fs --msg-level=all=warn \
         --video-sync="$sync" --loop-playlist=inf --cache=yes \
-        --cache-secs="$cache_secs" --cache-pause-wait="$cache_secs" \
+        --cache-secs="$cache_secs" --cache-pause-wait=1 \
         --demuxer-thread=yes --demuxer-readahead-secs="$cache_secs" \
         --demuxer-max-bytes=64MiB \
         --demuxer-lavf-o="$media_opts" "$@" "$URL" &

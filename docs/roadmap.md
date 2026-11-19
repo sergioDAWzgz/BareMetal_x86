@@ -234,12 +234,13 @@ open until the board itself says which one it uses.
       UDP artifacts, and that `--profile=fast --hwdec=auto` loses no frames;
       `bmx-rtsp` keeps RTP/UDP as the default with a 4 MiB RTP socket buffer and
       a session-scoped `rmem_max` raise, leaves TCP selectable for lossless
-      video, decodes with the fast profile and auto hwdec, keeps a one-second
-      demuxer cache (`BMX_RTSP_CACHE_SECS` raises it) so playback follows the
-      server's current position, paces video with the display refresh and loops
-      at EOF by reloading the URL (`--loop-playlist=inf`) after the server
-      rejects the seek; the board must confirm the shipped defaults and
-      loop-stability
+      video, decodes with the fast profile and auto hwdec, keeps a two-second
+      demuxer cache (`BMX_RTSP_CACHE_SECS`: 1 for lowest latency, 3-5 for a
+      lossy link) with a one-second rebuffer so playback follows the server's
+      current position while gaps are absorbed, paces video with the display
+      refresh and loops at EOF by reloading the URL (`--loop-playlist=inf`)
+      after the server rejects the seek; the board must confirm the shipped
+      defaults and loop-stability
 - [x] re-check the 1080p60 display path: `bmx-play` is smooth on the board (the
       earlier 177/600 drops are gone); the display/render path was the limit, not
       the decode

@@ -443,3 +443,12 @@ second and a source seek or loop is not delayed by a large local backlog. The
 burst-absorbing layer; a larger `BMX_RTSP_CACHE_SECS` trades latency for
 resilience on a lossy link, and TCP remains the only lossless transport. The
 gate marker also pins the one-second cache default.
+
+L29: "O mejor dicho, reducir los cortes visibles al mínimo posible"
+
+The cache default moves from one to two seconds and the rebuffer wait stays at
+one second: the larger cache absorbs more network jitter before it becomes a
+visible freeze, while a source seek or loop is still followed within about two
+seconds. Lower it to 1 for the lowest latency or raise it to 3-5 for a lossy
+link; TCP remains the lossless path for packet-loss artifacts. The loop reload
+still has an inherent reconnect gap when the server rejects the seek with 405.
