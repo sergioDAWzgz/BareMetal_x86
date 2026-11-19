@@ -405,3 +405,17 @@ The board found that `--profile=fast` with `--hwdec=auto` loses no frames.
 of `--hwdec=vaapi` plus `--hwdec-software-fallback=no`, so mpv picks the VA-API
 path and keeps the three-frame software fallback available. The gate marker also
 pins the fast profile and the auto hwdec (`bmx: rtsp defaults ready`).
+
+L26: "Dos problemas: el stream no se reinicia por la falta del parámetro
+--force-seekable=true; debería venir incluido y cargar automáticamente. Luego,
+bmx-rtsp ya no funciona como antes: sería mejor reestablecer los parámetros de
+transporte que pusiste en la anterior versión, con UDP por defecto, creo
+recordar"
+
+Board report: the loop needed `--force-seekable=yes`, which is now part of the
+helper; `--loop-file` can seek inside the cache even when the demuxer calls the
+stream unseekable. The transport default returns to RTP/UDP with the 4 MiB
+socket buffer and the session-scoped `rmem_max` raise; `BMX_RTSP_TRANSPORT=tcp`
+remains the lossless path for clients that cannot accept packet loss. The gate
+marker checks the UDP default, the loop, force-seekable, the fast profile, auto
+hwdec and the buffer together.

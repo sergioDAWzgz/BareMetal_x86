@@ -626,8 +626,9 @@ for script in /usr/local/bin/bmx-shell /usr/local/bin/bmx-keymap \
         echo "bmx: $name broken"
     fi
 done
-if grep -q 'BMX_RTSP_TRANSPORT:-tcp' /usr/local/bin/bmx-rtsp &&
+if grep -q 'BMX_RTSP_TRANSPORT:-udp' /usr/local/bin/bmx-rtsp &&
    grep -q 'loop-file=inf' /usr/local/bin/bmx-rtsp &&
+   grep -q 'force-seekable=yes' /usr/local/bin/bmx-rtsp &&
    grep -q 'profile=fast' /usr/local/bin/bmx-rtsp &&
    grep -q 'hwdec=auto' /usr/local/bin/bmx-rtsp &&
    grep -q 'rtp_buffer=4194304' /usr/local/bin/bmx-rtsp; then
@@ -898,12 +899,11 @@ EOF
 cat > "$ALPINE_ROOT/usr/local/bin/bmx-rtsp" <<'EOF'
 #!/bin/sh
 # Play an RTSP stream on the board: hardware decode (auto; VA-API via i965),
-# KMS/DRM output and ALSA
-# audio. TCP interleaving is the default because it cannot lose packets, which
-# is what shows up as image artifacts on a lossy UDP path;
-# BMX_RTSP_TRANSPORT=udp switches to RTP/UDP for lower latency, with the larger
-# socket buffer below. The stream loops at EOF instead of exiting: mpv seeks
-# back to the start, which keeps the RTSP session when the server allows seeking.
+# KMS/DRM output and ALSA audio. RTP runs over UDP by default with the larger
+# socket buffer below; BMX_RTSP_TRANSPORT=tcp switches to the lossless
+# interleaved path when image integrity matters more than latency. The stream
+# loops at EOF instead of exiting: --force-seekable lets mpv seek back to the
+# start even when the demuxer would call the stream unseekable.
 #
 # Video is paced by the display instead of the audio clock: with the audio clock
 # as master, a jittery ALSA device can make mpv drop video frames continuously
@@ -936,7 +936,7 @@ rtsp://* | rtsps://*) ;;
     exit 1
     ;;
 esac
-transport=${BMX_RTSP_TRANSPORT:-tcp}
+transport=${BMX_RTSP_TRANSPORT:-udp}
 case "$transport" in
 udp | udp_multicast) udp_media=1 ;;
 *) udp_media= ;;
@@ -972,7 +972,7 @@ play() {
     mpv --no-config --profile=fast --vo=gpu --gpu-context=drm \
         --drm-device=/dev/dri/card0 --hwdec=auto \
         --ao=alsa --osd-level=0 --fs --msg-level=all=warn \
-        --video-sync="$sync" --loop-file=inf --cache=yes \
+        --video-sync="$sync" --loop-file=inf --force-seekable=yes --cache=yes \
         --cache-pause-initial=yes \
         --cache-pause-wait="$cache_prime" --demuxer-thread=yes \
         --demuxer-readahead-secs=10 --demuxer-max-bytes=256MiB \
