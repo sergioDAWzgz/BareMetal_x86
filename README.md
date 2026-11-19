@@ -141,14 +141,13 @@ HDA controller: `snd-hda-intel` with the Realtek codec parser is built in (the
 gate exercises the same path with QEMU's generic HDA codec), and `alsa-utils`
 ships `aplay`/`amixer`. `bmx-audio` unmutes the card at boot; `aplay -l` and
 `speaker-test` are the board checks. `bmx-rtsp rtsp://…` plays a network stream
-over RTP/UDP by default (TCP interleaving stays available through
-`BMX_RTSP_TRANSPORT=tcp`), asks for a 4 MiB RTP socket buffer and raises
-`net.core.rmem_max` for the playback only, primes three seconds of cache before
-the first frame and paces video with the display refresh (`BMX_RTSP_SYNC=audio`
-reverts to the audio clock); UDP drops packets on a congested link, so TCP is
-the transport to use when image integrity matters more than latency. `bmx-play`
-keeps `--no-audio` as the local video benchmark. The `font-terminus` package
-also carries
+over RTSP/TCP by default (UDP stays available through
+`BMX_RTSP_TRANSPORT=udp` for lower latency, with a 4 MiB RTP socket buffer and a
+session-scoped `rmem_max` raise), primes three seconds of cache, paces video
+with the display refresh (`BMX_RTSP_SYNC=audio` reverts) and loops at EOF
+instead of exiting; TCP is the lossless transport when image integrity matters.
+`bmx-play` keeps `--no-audio` as the local video benchmark. The `font-terminus`
+package also carries
 6x12, 8x14, 10x18, 10x20, 11x22, 12x24, 14x28 and 16x32, each in normal and
 bold, so a different cell size is one line in `bmx-console-font`. The kernel
 also carries `efifb` and QEMU's `bochs-drm`: the first gives the UEFI installer a

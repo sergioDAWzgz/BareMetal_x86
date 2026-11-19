@@ -626,11 +626,12 @@ for script in /usr/local/bin/bmx-shell /usr/local/bin/bmx-keymap \
         echo "bmx: $name broken"
     fi
 done
-if grep -q 'BMX_RTSP_TRANSPORT:-udp' /usr/local/bin/bmx-rtsp &&
+if grep -q 'BMX_RTSP_TRANSPORT:-tcp' /usr/local/bin/bmx-rtsp &&
+   grep -q 'loop-file=inf' /usr/local/bin/bmx-rtsp &&
    grep -q 'rtp_buffer=4194304' /usr/local/bin/bmx-rtsp; then
-    echo "bmx: rtsp udp default ready"
+    echo "bmx: rtsp defaults ready"
 else
-    echo "bmx: rtsp udp default missing"
+    echo "bmx: rtsp defaults missing"
 fi
 EOF
 
@@ -895,10 +896,11 @@ EOF
 cat > "$ALPINE_ROOT/usr/local/bin/bmx-rtsp" <<'EOF'
 #!/bin/sh
 # Play an RTSP stream on the board: VA-API decode, KMS/DRM output and ALSA
-# audio. RTP runs over UDP by default: TCP interleaving makes one lost packet
-# stall every stream that shares the connection, which turns a bursty camera
-# into stuttering video while the audio keeps going.
-# BMX_RTSP_TRANSPORT=tcp switches back to the interleaved path.
+# audio. TCP interleaving is the default because it cannot lose packets, which
+# is what shows up as image artifacts on a lossy UDP path;
+# BMX_RTSP_TRANSPORT=udp switches to RTP/UDP for lower latency, with the larger
+# socket buffer below. The stream loops at EOF instead of exiting: mpv seeks
+# back to the start, which keeps the RTSP session when the server allows seeking.
 #
 # Video is paced by the display instead of the audio clock: with the audio clock
 # as master, a jittery ALSA device can make mpv drop video frames continuously
@@ -931,7 +933,7 @@ rtsp://* | rtsps://*) ;;
     exit 1
     ;;
 esac
-transport=${BMX_RTSP_TRANSPORT:-udp}
+transport=${BMX_RTSP_TRANSPORT:-tcp}
 case "$transport" in
 udp | udp_multicast) udp_media=1 ;;
 *) udp_media= ;;
@@ -967,7 +969,8 @@ play() {
     mpv --no-config --profile=fast --vo=gpu --gpu-context=drm \
         --drm-device=/dev/dri/card0 --hwdec=vaapi --hwdec-software-fallback=no \
         --ao=alsa --osd-level=0 --fs --msg-level=all=warn \
-        --video-sync="$sync" --cache=yes --cache-pause-initial=yes \
+        --video-sync="$sync" --loop-file=inf --cache=yes \
+        --cache-pause-initial=yes \
         --cache-pause-wait="$cache_prime" --demuxer-thread=yes \
         --demuxer-readahead-secs=10 --demuxer-max-bytes=256MiB \
         --demuxer-lavf-o="$media_opts" "$@" "$URL" &

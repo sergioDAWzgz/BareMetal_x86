@@ -380,3 +380,18 @@ QEMU still cannot play the stream (no i965/VA-API), so the gate proves the
 script parses and that the shipped helper still carries the UDP default and the
 4 MiB buffer (`bmx: rtsp udp default ready`); it never runs mpv, so option
 acceptance and smoothness over UDP remain board checks.
+
+L24: "Sólo una cosa más: cuando haya un stream reproduciendo un vídeo en bucle,
+no debería cerrar el stream cuando termine el vídeo, sino que debe mantener la
+conexión, y reproducir el vídeo otra vez si procede. Sobre los artifacts, al
+final forzando TCP en VLC los ha eliminado"
+
+Board report: TCP forced in VLC removes the artifacts, so the remaining image
+faults were UDP packet loss. L24 supersedes the L23 transport default:
+`bmx-rtsp` now defaults to RTSP/TCP (`BMX_RTSP_TRANSPORT=udp` keeps the
+low-latency path with its 4 MiB buffer and the session-scoped `rmem_max` raise)
+and adds `--loop-file=inf`: at EOF mpv seeks back to the start, which keeps the
+RTSP session when the server allows seeking and no longer exits. A live camera
+that never ends sees no change. The gate marker now asserts the TCP default, the
+loop and the UDP buffer together (`bmx: rtsp defaults ready`); playback and loop
+stability remain board checks.
