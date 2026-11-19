@@ -235,9 +235,9 @@ open until the board itself says which one it uses.
       `bmx-rtsp` keeps RTP/UDP as the default with a 4 MiB RTP socket buffer and
       a session-scoped `rmem_max` raise, leaves TCP selectable for lossless
       video, decodes with the fast profile and auto hwdec, paces video with the
-      display refresh, primes three seconds of cache and loops at EOF with
-      `--force-seekable=yes`; the board must confirm the shipped defaults and
-      loop-stability
+      display refresh, primes three seconds of cache and loops at EOF by
+      reloading the URL (`--loop-playlist=inf`) after the server rejects the
+      seek; the board must confirm the shipped defaults and loop-stability
 - [x] re-check the 1080p60 display path: `bmx-play` is smooth on the board (the
       earlier 177/600 drops are gone); the display/render path was the limit, not
       the decode

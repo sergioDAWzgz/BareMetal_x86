@@ -627,8 +627,7 @@ for script in /usr/local/bin/bmx-shell /usr/local/bin/bmx-keymap \
     fi
 done
 if grep -q 'BMX_RTSP_TRANSPORT:-udp' /usr/local/bin/bmx-rtsp &&
-   grep -q 'loop-file=inf' /usr/local/bin/bmx-rtsp &&
-   grep -q 'force-seekable=yes' /usr/local/bin/bmx-rtsp &&
+   grep -q 'loop-playlist=inf' /usr/local/bin/bmx-rtsp &&
    grep -q 'profile=fast' /usr/local/bin/bmx-rtsp &&
    grep -q 'hwdec=auto' /usr/local/bin/bmx-rtsp &&
    grep -q 'rtp_buffer=4194304' /usr/local/bin/bmx-rtsp; then
@@ -902,8 +901,9 @@ cat > "$ALPINE_ROOT/usr/local/bin/bmx-rtsp" <<'EOF'
 # KMS/DRM output and ALSA audio. RTP runs over UDP by default with the larger
 # socket buffer below; BMX_RTSP_TRANSPORT=tcp switches to the lossless
 # interleaved path when image integrity matters more than latency. The stream
-# loops at EOF instead of exiting: --force-seekable lets mpv seek back to the
-# start even when the demuxer would call the stream unseekable.
+# loops at EOF by reloading the URL (--loop-playlist=inf): this server rejects
+# the RTSP seek with 405, so the client cannot keep the session and must reopen
+# it. A server that loops without ending the stream never triggers the reload.
 #
 # Video is paced by the display instead of the audio clock: with the audio clock
 # as master, a jittery ALSA device can make mpv drop video frames continuously
@@ -972,7 +972,7 @@ play() {
     mpv --no-config --profile=fast --vo=gpu --gpu-context=drm \
         --drm-device=/dev/dri/card0 --hwdec=auto \
         --ao=alsa --osd-level=0 --fs --msg-level=all=warn \
-        --video-sync="$sync" --loop-file=inf --force-seekable=yes --cache=yes \
+        --video-sync="$sync" --loop-playlist=inf --cache=yes \
         --cache-pause-initial=yes \
         --cache-pause-wait="$cache_prime" --demuxer-thread=yes \
         --demuxer-readahead-secs=10 --demuxer-max-bytes=256MiB \

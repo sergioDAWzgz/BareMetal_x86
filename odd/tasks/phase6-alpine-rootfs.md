@@ -419,3 +419,12 @@ socket buffer and the session-scoped `rmem_max` raise; `BMX_RTSP_TRANSPORT=tcp`
 remains the lossless path for clients that cannot accept packet loss. The gate
 marker checks the UDP default, the loop, force-seekable, the fast profile, auto
 hwdec and the buffer together.
+
+L27: "Error 405 when trying to loop back in the player"
+
+The server rejects the RTSP seek used by `--loop-file`/`--force-seekable` with
+405 Method Not Allowed. `bmx-rtsp` now loops with `--loop-playlist=inf`, which
+reloads the URL at EOF and reopens the session; keeping the original session is
+not possible when the server refuses the seek. A server that loops without
+ending the stream never triggers the reload. The gate marker checks the playlist
+loop instead of `--loop-file`/`--force-seekable`.
