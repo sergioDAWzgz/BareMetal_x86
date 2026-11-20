@@ -143,7 +143,9 @@ ships `aplay`/`amixer`. `bmx-audio` unmutes the card at boot; `aplay -l` and
 `speaker-test` are the board checks. `bmx-rtsp rtsp://…` plays a network stream
 over RTP/UDP by default, with a 4 MiB RTP socket buffer and a session-scoped
 `rmem_max` raise; `BMX_RTSP_TRANSPORT=tcp` switches to the lossless interleaved
-path when image integrity matters more than latency. It decodes with
+path when image integrity matters more than latency, and the board found that
+server-side transcoding (VLC) also removes the UDP artifacts by normalizing the
+source bursts the socket buffer cannot absorb. It decodes with
 `--profile=fast --hwdec=auto` (software fallback allowed), keeps a two-second
 demuxer cache (`BMX_RTSP_CACHE_SECS`: 1 for lowest latency, 3-5 for a lossy
 link) with a one-second rebuffer, so playback stays close to the server's

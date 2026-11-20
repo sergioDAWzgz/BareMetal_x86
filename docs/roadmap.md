@@ -230,9 +230,11 @@ open until the board itself says which one it uses.
       `bmx-audio` unmutes Master/PCM/Headphone/Front/Speaker at boot and
       `bmx-rtsp` uses `--ao=alsa`; the board confirms audible output through
       `speaker-test` and a stream with sound
-- [ ] smooth 1080p RTSP: the board confirmed that TCP forced in VLC removes the
-      UDP artifacts, and that `--profile=fast --hwdec=auto` loses no frames;
-      `bmx-rtsp` keeps RTP/UDP as the default with a 4 MiB RTP socket buffer and
+- [ ] smooth 1080p RTSP: the board confirmed that TCP forced in VLC and
+      server-side transcoding both remove the UDP artifacts, so the source
+      bursts were the cause, and that `--profile=fast --hwdec=auto` loses no
+      frames; `bmx-rtsp` keeps RTP/UDP as the default with a 4 MiB RTP socket
+      buffer and
       a session-scoped `rmem_max` raise, leaves TCP selectable for lossless
       video, decodes with the fast profile and auto hwdec, keeps a two-second
       demuxer cache (`BMX_RTSP_CACHE_SECS`: 1 for lowest latency, 3-5 for a

@@ -469,3 +469,13 @@ reported by the display-sync modes, so it is unavailable in audio mode). The
 default sync is now audio; `BMX_RTSP_SYNC=display-resample` restores the old
 mode. The 24p stream on a 60 Hz output still has 3:2 cadence, which no drop
 counter shows; a native 24 Hz mode is the next step if the panel supports it.
+
+L32: "Vale, me he dado cuenta de que activando la transcodificación en VLC, los
+artefactos en la transmisión desaparecen por completo, aunque uses UDP"
+
+Board report: server-side transcoding removes the artifacts over UDP, so the
+source stream was the cause: its bursts exceeded what the socket/NIC could
+absorb, and transcoding normalizes them. The client-side buffer, two-second
+cache, audio clock and playlist loop are not at fault; TCP remains the lossless
+client transport and transcoding the source-side fix. The remaining 24p
+cadence and the loop reload gap are separate.
