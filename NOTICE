@@ -1,0 +1,22 @@
+BareMetal_x86 third-party notices
+
+Original code
+  The original BareMetal_x86 bootloader, kernel, installer and scripts in this
+  repository are licensed under GPL-2.0-only. See LICENSE.
+
+Linux kernel
+  The installer ISO contains a Linux 6.12.115 kernel binary, licensed under
+  GPL-2.0-only WITH Linux-syscall-note.
+  The exact source is available from:
+    https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.115.tar.xz
+  build.sh downloads and builds that version.
+  The Linux syscall note applies to user programs that use kernel services by
+  normal system calls; it does not change the kernel's license.
+
+Alpine Linux packages
+  The root filesystem contains Alpine 3.24.4 packages, each under its own
+  license. Source packages and license metadata are available from the Alpine
+  repositories:
+    https://gitlab.alpinelinux.org/alpine/aports
+
+The GPL-2.0-only text is in LICENSE.

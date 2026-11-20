@@ -486,4 +486,7 @@ FAT32 volume, so a board can be tried in either mode without rebuilding anything
 
 ## License
 
-Not chosen yet.
+The original BareMetal_x86 code is licensed under **GPL-2.0-only**; see
+[`LICENSE`](LICENSE). The ISO also contains the Linux kernel (GPL-2.0-only with
+the Linux syscall note) and Alpine packages under their own licenses; see
+[`NOTICE`](NOTICE).
