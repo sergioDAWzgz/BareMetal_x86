@@ -637,6 +637,12 @@ if grep -q 'BMX_RTSP_TRANSPORT:-udp' /usr/local/bin/bmx-rtsp &&
 else
     echo "bmx: rtsp defaults missing"
 fi
+if [ -f /usr/share/licenses/bmx/LICENSE ] &&
+   [ -f /usr/share/licenses/bmx/NOTICE ]; then
+    echo "bmx: license ready"
+else
+    echo "bmx: license missing"
+fi
 EOF
 
 cat > "$ALPINE_ROOT/usr/local/bin/bmx-mouse" <<'EOF'
@@ -1024,6 +1030,13 @@ chmod +x "$ALPINE_ROOT/usr/local/bin/bmx-check" \
 # it cannot read the file to copy it. The image drops into a root shell and never
 # uses su, so a readable copy is enough.
 chmod 0755 "$ALPINE_ROOT/bin/bbsuid" 2>/dev/null || true
+
+# The original code is GPL-2.0-only and the image bundles a GPL-2.0-only Linux
+# kernel, so the distribution notices travel with the root filesystem.
+mkdir -p "$ALPINE_ROOT/usr/share/licenses/bmx"
+cp LICENSE NOTICE "$ALPINE_ROOT/usr/share/licenses/bmx/"
+chmod 0644 "$ALPINE_ROOT/usr/share/licenses/bmx/LICENSE" \
+           "$ALPINE_ROOT/usr/share/licenses/bmx/NOTICE"
 
 rm -f "$ALPINE_IMAGE"
 "$MKE2FS" -q -t ext4 -b 4096 -d "$ALPINE_ROOT" "$ALPINE_IMAGE" 512M

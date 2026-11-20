@@ -159,6 +159,7 @@ common_assertions() {
   grep -q 'bmx: bmx-audio ready'                "$log" || fail "$label: bmx-audio is missing or does not parse"
   grep -q 'bmx: bmx-rtsp ready'                 "$log" || fail "$label: bmx-rtsp is missing or does not parse"
   grep -q 'bmx: rtsp defaults ready'           "$log" || fail "$label: bmx-rtsp lost the UDP default, the playlist loop, the fast profile, the auto hwdec, the two-second cache, the audio clock or the RTP buffer"
+  grep -q 'bmx: license ready'                  "$log" || fail "$label: the license notices are missing from the installed rootfs"
   grep -q 'bmx: bmx-shell ready'                "$log" || fail "$label: bmx-shell is missing or does not parse"
   grep -q 'bmx: bmx-keymap ready'               "$log" || fail "$label: bmx-keymap is missing or does not parse"
   grep -q 'bmx: bmx-clear ready'                "$log" || fail "$label: bmx-clear is missing or does not parse"
